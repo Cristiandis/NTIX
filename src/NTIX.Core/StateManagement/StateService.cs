@@ -1,7 +1,19 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using NTIX.Core.Models;
 
 namespace NTIX.Core.StateManagement;
+
+[JsonSerializable(typeof(State))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(List<PackageEntry>))]
+[JsonSerializable(typeof(NTIXConfig))]
+[JsonSerializable(typeof(NTIXOptions))]
+[JsonSerializable(typeof(WingetOptions))]
+[JsonSerializable(typeof(ChocoOptions))]
+[JsonSerializable(typeof(ScoopOptions))]
+[JsonSerializable(typeof(PackageEntry))]
+internal partial class StateJsonContext : JsonSerializerContext { }
 
 public static class StateService
 {
@@ -9,7 +21,8 @@ public static class StateService
     {
         WriteIndented = true,
         PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        TypeInfoResolver = StateJsonContext.Default
     };
 
     public static string GetStatePath()

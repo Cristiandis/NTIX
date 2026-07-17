@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="MoonSharp" Version="3.0.0-beta.1" />
+    <PackageReference Include="LuaCSharp" Version="0.5.5" />
     <PackageReference Include="WGet.NET" Version="4.4.1" />
   </ItemGroup>
 

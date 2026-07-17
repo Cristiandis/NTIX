@@ -1,4 +1,5 @@
-using MoonSharp.Interpreter;
+using Lua;
+using Lua.Standard;
 using NTIX.Core.Models;
 
 namespace NTIX.Core.Config;
@@ -16,43 +17,52 @@ public static class ConfigLoader
 
     public static NTIXConfig LoadFromString(string luaScript, string configPath)
     {
-        UserData.RegisterAssembly();
+        using var state = LuaState.Create();
 
-        var lua = new Script();
-        
+        state.OpenStandardLibraries();
+
         var directory = Path.GetDirectoryName(configPath) ?? "";
         if (!string.IsNullOrEmpty(directory))
         {
-            var packageTable = lua.Globals.Get("package").Table;
-            var currentPath = packageTable.Get("path").String;
-            packageTable.Set("path", DynValue.NewString(currentPath + ";" + directory.Replace('\\', '/') + "/?.lua"));
+            var pkg = state.Environment["package"].Read<LuaTable>();
+            var path = pkg["path"].Read<string>();
+            var newPath = path + ";" + directory.Replace('\\', '/') + "/?.lua";
+            pkg["path"] = newPath;
         }
+
+        state.OpenStandardLibraries();
 
         try
         {
-            var result = lua.DoString(luaScript);
-            return ParseConfig(result, configPath);
+            var results = state.DoStringAsync(luaScript).GetAwaiter().GetResult();
+            return ParseConfig(results[0], configPath);
         }
-        catch (SyntaxErrorException ex)
+        catch (LuaCompileException ex)
         {
             throw new InvalidOperationException($"Lua syntax error: {ex.Message}");
         }
-        catch (ScriptRuntimeException ex)
+        catch (LuaRuntimeException ex)
         {
             throw new InvalidOperationException($"Lua runtime error: {ex.Message}");
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
     }
 
-    private static NTIXConfig ParseConfig(DynValue result, string configPath)
+    private static NTIXConfig ParseConfig(LuaValue result, string configPath)
     {
-        if (result.Type != DataType.Table)
-            throw new InvalidOperationException("Config must return a table");
+        if (result.Type != LuaValueType.Table)
+            throw new InvalidOperationException($"Config must return a table, got {result.Type}");
 
-        var table = result.Table;
+        var table = result.Read<LuaTable>();
 
-        var optionsTable = table.Get("options").Table;
-        if (optionsTable == null)
+        var optionsVal = table["options"];
+        if (optionsVal.Type == LuaValueType.Nil)
             throw new InvalidOperationException("Config error: missing top-level 'options' table");
+
+        var optionsTable = optionsVal.Read<LuaTable>();
 
         var wingetOptions = ParseWingetOptions(optionsTable);
         var chocoOptions = ParseChocoOptions(optionsTable);
@@ -60,78 +70,87 @@ public static class ConfigLoader
 
         var options = new NTIXOptions(wingetOptions, chocoOptions, scoopOptions);
 
-        var pkgsTable = table.Get("pkgs").Table;
-        if (pkgsTable == null)
+        var pkgsVal = table["pkgs"];
+        if (pkgsVal.Type == LuaValueType.Nil)
             throw new InvalidOperationException("Config error: missing top-level 'pkgs' table");
 
-        var wingetPackages = ExtractPackages(pkgsTable.Get("winget"), "pkgs.winget");
-        var chocoPackages = ExtractPackages(pkgsTable.Get("chocolatey"), "pkgs.chocolatey");
-        var scoopPackages = ExtractPackages(pkgsTable.Get("scoop"), "pkgs.scoop");
+        var pkgsTable = pkgsVal.Read<LuaTable>();
+
+        var wingetPackages = ExtractPackages(pkgsTable["winget"], "pkgs.winget");
+        var chocoPackages = ExtractPackages(pkgsTable["chocolatey"], "pkgs.chocolatey");
+        var scoopPackages = ExtractPackages(pkgsTable["scoop"], "pkgs.scoop");
 
         return new NTIXConfig(options, wingetPackages, chocoPackages, scoopPackages);
     }
 
-    private static WingetOptions ParseWingetOptions(Table optionsTable)
+    private static WingetOptions ParseWingetOptions(LuaTable optionsTable)
     {
-        var wingetTable = optionsTable.Get("winget").Table;
-        if (wingetTable == null)
+        var wingetVal = optionsTable["winget"];
+        if (wingetVal.Type == LuaValueType.Nil)
             return new WingetOptions();
 
+        var table = wingetVal.Read<LuaTable>();
+
         return new WingetOptions(
-            Enable: wingetTable.Get("enable").Boolean,
-            AcceptAgreements: wingetTable.Get("acceptAgreements").Boolean,
-            Interactive: wingetTable.Get("interactive").Boolean
+            Enable: table.ContainsKey("enable") && table["enable"].Type == LuaValueType.Boolean ? table["enable"].Read<bool>() : false,
+            AcceptAgreements: table.ContainsKey("acceptAgreements") && table["acceptAgreements"].Type == LuaValueType.Boolean ? table["acceptAgreements"].Read<bool>() : false,
+            Interactive: table.ContainsKey("interactive") && table["interactive"].Type == LuaValueType.Boolean ? table["interactive"].Read<bool>() : false
         );
     }
 
-    private static ChocoOptions ParseChocoOptions(Table optionsTable)
+    private static ChocoOptions ParseChocoOptions(LuaTable optionsTable)
     {
-        var chocoTable = optionsTable.Get("chocolatey").Table;
-        if (chocoTable == null)
+        var chocoVal = optionsTable["chocolatey"];
+        if (chocoVal.Type == LuaValueType.Nil)
             return new ChocoOptions();
 
+        var table = chocoVal.Read<LuaTable>();
+
+        static bool HasBool(LuaTable t, string key) => t.ContainsKey(key) && t[key].Type == LuaValueType.Boolean;
+
         return new ChocoOptions(
-            Enable: chocoTable.Get("enable").Boolean,
-            Yes: chocoTable.Get("yes").Boolean
+            Enable: table.ContainsKey("enable") && table["enable"].Type == LuaValueType.Boolean ? table["enable"].Read<bool>() : false,
+            Yes: table.ContainsKey("yes") && table["yes"].Type == LuaValueType.Boolean ? table["yes"].Read<bool>() : false
         );
     }
 
-    private static ScoopOptions ParseScoopOptions(Table optionsTable)
+    private static ScoopOptions ParseScoopOptions(LuaTable optionsTable)
     {
-        var scoopTable = optionsTable.Get("scoop").Table;
-        if (scoopTable == null)
+        var scoopVal = optionsTable["scoop"];
+        if (scoopVal.Type == LuaValueType.Nil)
             return new ScoopOptions();
 
+        var table = scoopVal.Read<LuaTable>();
         var buckets = new List<string> { "main", "extras", "versions" };
-        var bucketsVal = scoopTable.Get("buckets");
-        if (bucketsVal.Type == DataType.Table)
+        var bucketsVal = table["buckets"];
+        if (bucketsVal.Type == LuaValueType.Table)
         {
-            buckets.Clear();
-            foreach (var kvp in bucketsVal.Table.Pairs)
+            var bucketsList = new List<string>();
+            foreach (var kvp in bucketsVal.Read<LuaTable>())
             {
-                if (kvp.Value.Type == DataType.String)
-                    buckets.Add(kvp.Value.String);
+                if (kvp.Value.Type == LuaValueType.String)
+                    buckets.Add(kvp.Value.Read<string>());
             }
         }
 
         return new ScoopOptions(
-            Enable: scoopTable.Get("enable").Boolean,
+            Enable: table.ContainsKey("enable") && table["enable"].Type == LuaValueType.Boolean ? table["enable"].Read<bool>() : false,
             Buckets: buckets
         );
     }
 
-    private static List<PackageEntry> ExtractPackages(DynValue pkgsVal, string sourceName)
+    private static List<PackageEntry> ExtractPackages(LuaValue pkgsVal, string sourceName)
     {
         var result = new List<PackageEntry>();
-        
-        if (pkgsVal == null || pkgsVal.Type != DataType.Table)
+
+        if (pkgsVal.Type == LuaValueType.Nil || pkgsVal.Type != LuaValueType.Table)
             return result;
 
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        
-        foreach (var kvp in pkgsVal.Table.Pairs)
+
+        foreach (var kvp in pkgsVal.Read<LuaTable>())
         {
-            if (kvp.Key.Type != DataType.Number)
+            if (kvp.Key.Type != LuaValueType.Number)
                 continue;
 
             var entry = ParsePackageEntry(kvp.Value, sourceName);
@@ -151,26 +170,26 @@ public static class ConfigLoader
         return result;
     }
 
-    private static PackageEntry? ParsePackageEntry(DynValue value, string sourceName)
+    private static PackageEntry? ParsePackageEntry(LuaValue value, string sourceName)
     {
-        if (value.Type == DataType.String)
+        if (value.Type == LuaValueType.String)
         {
-            return new PackageEntry(value.String, null);
+            return new PackageEntry(value.Read<string>(), null);
         }
-        else if (value.Type == DataType.Table)
+        else if (value.Type == LuaValueType.Table)
         {
-            var table = value.Table;
-            var idVal = table.Get("id");
-            var versionVal = table.Get("version");
+            var table = value.Read<LuaTable>();
+            var idVal = table["id"];
+            var versionVal = table["version"];
 
-            if (idVal.Type != DataType.String)
+            if (idVal.Type != LuaValueType.String)
             {
                 throw new InvalidOperationException($"Invalid package entry in {sourceName}: missing 'id'");
             }
 
             return new PackageEntry(
-                idVal.String,
-                versionVal.Type == DataType.String ? versionVal.String : null
+                idVal.Read<string>(),
+                versionVal.Type == LuaValueType.String ? versionVal.Read<string>() : null
             );
         }
 

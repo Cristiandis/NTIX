@@ -1,139 +1,107 @@
-using System.Threading;
-using System.Threading.Tasks;
-using Spectre.Console;
-using Spectre.Console.Cli;
+using CliFx;
+using CliFx.Binding;
+using CliFx.Infrastructure;
 using NTIX.Core.Config;
 using NTIX.Core.StateManagement;
 using NTIX.Core.Diff;
 using NTIX.Core.Execution;
 using NTIX.Core.Lock;
+using Spectre.Console;
 
 namespace NTIX.CLI.Commands;
 
-public class ApplySettings : CommandSettings
+[Command("apply", Description = "Apply desired state (install/remove packages)")]
+public partial class ApplyCommand : ICommand
 {
-    [CommandArgument(0, "<CONFIG>")]
-    public string ConfigPath { get; init; } = "";
+    [CommandParameter(0, Name = "config-path", Description = "Path to configuration file (e.g., /path/to/config.lua)")]
+    public required string ConfigPath { get; set; }
 
-    [CommandOption("--dry-run")]
-    public bool DryRun { get; init; }
+    [CommandOption("dry-run", 'd', Description = "Show what would change without applying")]
+    public bool DryRun { get; set; }
 
-    [CommandOption("--no-gc")]
-    public bool NoGc { get; init; }
-}
+    [CommandOption("no-gc", Description = "Don't remove packages not in config")]
+    public bool NoGc { get; set; }
 
-public class ApplyCommand : AsyncCommand<ApplySettings>
-{
-    protected override async Task<int> ExecuteAsync(CommandContext context, ApplySettings settings, CancellationToken cancellationToken = default)
+    public async ValueTask ExecuteAsync(IConsole console)
     {
-        try
+        var config = ConfigLoader.Load(ConfigPath);
+        var state = StateService.LoadState() ?? new NTIX.Core.Models.State();
+        var diff = DiffEngine.ComputeDiff(config, state);
+
+        if (NoGc)
+            diff.ToRemove.Clear();
+
+        DiffEngine.PrintDiff(diff);
+
+        if (DryRun)
         {
-            var config = ConfigLoader.Load(settings.ConfigPath);
-            var state = StateService.LoadState() ?? new NTIX.Core.Models.State();
-            var diff = DiffEngine.ComputeDiff(config, state);
-
-            if (settings.NoGc)
-                diff.ToRemove.Clear();
-
-            DiffEngine.PrintDiff(diff);
-
-            if (settings.DryRun)
-            {
-                AnsiConsole.MarkupLine("\n[yellow](Dry run - no changes made)[/]");
-                return 0;
-            }
-
-            if (diff.IsEmpty)
-                return 0;
-
-            using var lockFile = new LockFile();
-            var success = ExecutionEngine.ApplyDiff(diff, config.Options, state);
-            
-            if (success)
-            {
-                StateService.SaveState(state);
-                AnsiConsole.MarkupLine("\n[green]Done.[/]");
-                return 0;
-            }
-            else
-            {
-                AnsiConsole.MarkupLine("\n[red]Some operations failed.[/]");
-                return 1;
-            }
+            AnsiConsole.MarkupLine("\n[yellow](Dry run - no changes made)[/]");
+            return;
         }
-        catch (Exception ex)
+
+        if (diff.IsEmpty)
+            return;
+
+        using var lockFile = new LockFile();
+        var success = await ExecutionEngine.ApplyDiffAsync(diff, config.Options, state);
+        
+        if (success)
         {
-            AnsiConsole.MarkupLine($"[red]Error: {ex.Message}[/]");
-            return 1;
+            StateService.SaveState(state);
+            AnsiConsole.MarkupLine("\n[green]Done.[/]");
+        }
+        else
+        {
+            AnsiConsole.MarkupLine("\n[red]Some operations failed.[/]");
+            Environment.ExitCode = 1;
         }
     }
 }
 
-public class DiffSettings : CommandSettings
+[Command("diff", Description = "Show what would change")]
+public partial class DiffCommand : ICommand
 {
-    [CommandArgument(0, "<CONFIG>")]
-    public string ConfigPath { get; init; } = "";
-}
+    [CommandParameter(0, Name = "config-path", Description = "Path to configuration file (e.g., /path/to/config.lua)")]
+    public required string ConfigPath { get; set; }
 
-public class DiffCommand : AsyncCommand<DiffSettings>
-{
-    protected override async Task<int> ExecuteAsync(CommandContext context, DiffSettings settings, CancellationToken cancellationToken = default)
+    public async ValueTask ExecuteAsync(IConsole console)
     {
-        try
-        {
-            var config = ConfigLoader.Load(settings.ConfigPath);
-            var state = StateService.LoadState() ?? new NTIX.Core.Models.State();
-            var diff = DiffEngine.ComputeDiff(config, state);
-            DiffEngine.PrintDiff(diff);
-            return 0;
-        }
-        catch (Exception ex)
-        {
-            AnsiConsole.MarkupLine($"[red]Error: {ex.Message}[/]");
-            return 1;
-        }
+        var config = ConfigLoader.Load(ConfigPath);
+        var state = StateService.LoadState() ?? new NTIX.Core.Models.State();
+        var diff = DiffEngine.ComputeDiff(config, state);
+        DiffEngine.PrintDiff(diff);
     }
 }
 
-public class StateSettings : CommandSettings { }
-
-public class StateCommand : AsyncCommand<StateSettings>
+[Command("state", Description = "Show current NTIX state")]
+public partial class StateCommand : ICommand
 {
-    protected override async Task<int> ExecuteAsync(CommandContext context, StateSettings settings, CancellationToken cancellationToken = default)
+    public async ValueTask ExecuteAsync(IConsole console)
     {
-        try
+        var state = StateService.LoadState();
+        
+        if (state == null)
         {
-            var state = StateService.LoadState();
-            
-            if (state == null)
-            {
-                AnsiConsole.MarkupLine("[yellow]No state file found.[/]");
-                return 0;
-            }
-
-            AnsiConsole.MarkupLine("[bold]NTIX State:[/]");
-            
-            if (state.Winget.Count == 0 && state.Chocolatey.Count == 0 && state.Scoop.Count == 0)
-            {
-                AnsiConsole.MarkupLine("  [dim](empty)[/]");
-            }
-            else
-            {
-                foreach (var (id, ver) in state.Winget)
-                    AnsiConsole.MarkupLine($"  [cyan]winget: {id} ({ver})[/]");
-                
-                foreach (var (id, ver) in state.Chocolatey)
-                    AnsiConsole.MarkupLine($"  [magenta]chocolatey: {id} ({ver})[/]");
-                
-                foreach (var (id, ver) in state.Scoop)
-                    AnsiConsole.MarkupLine($"  [blue]scoop: {id} ({ver})[/]");
-            }
-            return 0;
+            AnsiConsole.MarkupLine("[yellow]No state file found.[/]");
+            return;
         }
-        catch (Exception ex)
+
+        AnsiConsole.MarkupLine("[bold]NTIX State:[/]");
+        
+        if (state.Winget.Count == 0 && state.Chocolatey.Count == 0 && state.Scoop.Count == 0)
         {
-            AnsiConsole.MarkupLine($"[red]Error: {ex.Message}[/]");
-            return 1;
+            AnsiConsole.MarkupLine("  [dim](empty)[/]");
+        }
+        else
+        {
+            foreach (var (id, ver) in state.Winget)
+                AnsiConsole.MarkupLine($"  [cyan]winget: {id} ({ver})[/]");
+            
+            foreach (var (id, ver) in state.Chocolatey)
+                AnsiConsole.MarkupLine($"  [magenta]chocolatey: {id} ({ver})[/]");
+            
+            foreach (var (id, ver) in state.Scoop)
+                AnsiConsole.MarkupLine($"  [blue]scoop: {id} ({ver})[/]");
         }
     }
 }

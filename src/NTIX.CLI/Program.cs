@@ -1,17 +1,9 @@
-using Spectre.Console.Cli;
-using NTIX.CLI.Commands;
+using CliFx;
 
-var app = new CommandApp();
-app.Configure(config =>
-{
-    config.SetApplicationName("ntix");
-    config.SetApplicationVersion("1.0.0");
-    config.AddCommand<ApplyCommand>("apply")
-        .WithDescription("Apply desired state (install/remove packages)");
-    config.AddCommand<DiffCommand>("diff")
-        .WithDescription("Show what would change");
-    config.AddCommand<StateCommand>("state")
-        .WithDescription("Show current NTIX state");
-});
+var app = new CommandLineApplicationBuilder()
+    .AddCommandsFromThisAssembly()
+    .SetExecutableName("ntix")
+    .SetVersion(typeof(Program).Assembly.GetName().Version?.ToString() ?? "1.0.0")
+    .Build();
 
-return app.Run(args);
+return await app.RunAsync();
