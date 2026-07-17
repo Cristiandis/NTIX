@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Threading.Tasks;
 using NTIX.Core.Models;
 using NTIX.Core.PackageManager;
 
@@ -6,18 +7,48 @@ namespace NTIX.Core.Execution;
 
 public static class ExecutionEngine
 {
-    public static bool ApplyDiff(DiffResult diff, NTIXOptions options, State state)
+    public static async Task<bool> ApplyDiffAsync(DiffResult diff, NTIXOptions options, State state, IWingetManager? wingetManager = null, NTIXConfig? config = null)
     {
+        if (!string.IsNullOrEmpty(diff.Error))
+        {
+            Console.Error.WriteLine($"[error] {diff.Error}");
+            foreach (var w in diff.Warnings)
+                Console.Error.WriteLine($"[warn] {w}");
+            return false;
+        }
+
+        if (config != null)
+        {
+            var (valid, error, warnings) = PackageManagerDetector.ValidateManagers(options, config);
+            if (!valid)
+            {
+                Console.Error.WriteLine($"[error] {error}");
+                foreach (var w in warnings)
+                    Console.Error.WriteLine($"[warn] {w}");
+                return false;
+            }
+            foreach (var w in warnings)
+                Console.Error.WriteLine($"[warn] {w}");
+        }
+
         var allOk = true;
+        var manager = wingetManager ?? new WingetManager();
 
         foreach (var pkg in diff.ToInstall)
         {
             if (!IsEnabled(pkg.Source, options)) continue;
 
-            var cmd = BuildInstallCommand(pkg, options);
             Console.WriteLine($"Installing {pkg.Source}:{pkg.Id}...");
-            
-            if (RunCommand(cmd) == 0)
+
+            bool success = pkg.Source switch
+            {
+                "winget" => await manager.InstallAsync(pkg.Id, pkg.Version, options.Winget.AcceptAgreements, !options.Winget.Interactive),
+                "chocolatey" => RunCommand(CommandBuilder.BuildChocoInstall(pkg.Id, pkg.Version, options.Chocolatey.Yes)) == 0,
+                "scoop" => RunCommand(CommandBuilder.BuildScoopInstall(pkg.Id, pkg.Version, options.Scoop.Buckets)) == 0,
+                _ => throw new InvalidOperationException($"Unknown source: {pkg.Source}")
+            };
+
+            if (success)
             {
                 UpdateState(state, pkg, true);
             }
@@ -32,10 +63,17 @@ public static class ExecutionEngine
         {
             if (!IsEnabled(pkg.Source, options)) continue;
 
-            var cmd = BuildUpgradeCommand(pkg, options);
             Console.WriteLine($"Upgrading {pkg.Source}:{pkg.Id}...");
-            
-            if (RunCommand(cmd) == 0)
+
+            bool success = pkg.Source switch
+            {
+                "winget" => await manager.UpgradeAsync(pkg.Id, options.Winget.AcceptAgreements, !options.Winget.Interactive),
+                "chocolatey" => RunCommand(CommandBuilder.BuildChocoUpgrade(pkg.Id, options.Chocolatey.Yes)) == 0,
+                "scoop" => RunCommand(CommandBuilder.BuildScoopUpgrade(pkg.Id)) == 0,
+                _ => throw new InvalidOperationException($"Unknown source: {pkg.Source}")
+            };
+
+            if (success)
             {
                 UpdateState(state, pkg, true);
             }
@@ -50,10 +88,17 @@ public static class ExecutionEngine
         {
             if (!IsEnabled(pkg.Source, options)) continue;
 
-            var cmd = BuildUninstallCommand(pkg, options);
             Console.WriteLine($"Removing {pkg.Source}:{pkg.Id}...");
-            
-            if (RunCommand(cmd) == 0)
+
+            bool success = pkg.Source switch
+            {
+                "winget" => await manager.UninstallAsync(pkg.Id, options.Winget.AcceptAgreements, !options.Winget.Interactive),
+                "chocolatey" => RunCommand(CommandBuilder.BuildChocoUninstall(pkg.Id, options.Chocolatey.Yes)) == 0,
+                "scoop" => RunCommand(CommandBuilder.BuildScoopUninstall(pkg.Id)) == 0,
+                _ => throw new InvalidOperationException($"Unknown source: {pkg.Source}")
+            };
+
+            if (success)
             {
                 UpdateState(state, pkg, false);
             }
@@ -67,36 +112,15 @@ public static class ExecutionEngine
         return allOk;
     }
 
+    public static bool ApplyDiff(DiffResult diff, NTIXOptions options, State state)
+        => ApplyDiffAsync(diff, options, state).GetAwaiter().GetResult();
+
     private static bool IsEnabled(string source, NTIXOptions options) => source switch
     {
         "winget" => options.Winget.Enable,
         "chocolatey" => options.Chocolatey.Enable,
         "scoop" => options.Scoop.Enable,
         _ => false
-    };
-
-    private static string BuildInstallCommand(PackageSpec pkg, NTIXOptions options) => pkg.Source switch
-    {
-        "winget" => CommandBuilder.BuildWingetInstall(pkg.Id, pkg.Version, options.Winget.AcceptAgreements, options.Winget.Interactive),
-        "chocolatey" => CommandBuilder.BuildChocoInstall(pkg.Id, pkg.Version, options.Chocolatey.Yes),
-        "scoop" => CommandBuilder.BuildScoopInstall(pkg.Id, pkg.Version, options.Scoop.Buckets),
-        _ => throw new InvalidOperationException($"Unknown source: {pkg.Source}")
-    };
-
-    private static string BuildUpgradeCommand(PackageSpec pkg, NTIXOptions options) => pkg.Source switch
-    {
-        "winget" => CommandBuilder.BuildWingetUpgrade(pkg.Id, options.Winget.AcceptAgreements, options.Winget.Interactive),
-        "chocolatey" => CommandBuilder.BuildChocoUpgrade(pkg.Id, options.Chocolatey.Yes),
-        "scoop" => CommandBuilder.BuildScoopUpgrade(pkg.Id),
-        _ => throw new InvalidOperationException($"Unknown source: {pkg.Source}")
-    };
-
-    private static string BuildUninstallCommand(PackageSpec pkg, NTIXOptions options) => pkg.Source switch
-    {
-        "winget" => CommandBuilder.BuildWingetUninstall(pkg.Id, options.Winget.AcceptAgreements, options.Winget.Interactive),
-        "chocolatey" => CommandBuilder.BuildChocoUninstall(pkg.Id, options.Chocolatey.Yes),
-        "scoop" => CommandBuilder.BuildScoopUninstall(pkg.Id),
-        _ => throw new InvalidOperationException($"Unknown source: {pkg.Source}")
     };
 
     private static void UpdateState(State state, PackageSpec pkg, bool installed)
@@ -134,7 +158,7 @@ public static class ExecutionEngine
 
         process.OutputDataReceived += (s, e) => { if (e.Data != null) Console.WriteLine(e.Data); };
         process.ErrorDataReceived += (s, e) => { if (e.Data != null) Console.Error.WriteLine(e.Data); };
-        
+
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
         process.WaitForExit();

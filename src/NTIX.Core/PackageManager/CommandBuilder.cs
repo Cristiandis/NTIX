@@ -2,18 +2,6 @@ namespace NTIX.Core.PackageManager;
 
 public static class CommandBuilder
 {
-    public static string BuildWingetInstall(string id, string? version, bool acceptAgreements, bool interactive)
-    {
-        var cmd = $"winget install --id {id}";
-        if (!string.IsNullOrEmpty(version))
-            cmd += $" --version {version}";
-        if (acceptAgreements)
-            cmd += " --accept-source-agreements --accept-package-agreements";
-        if (!interactive)
-            cmd += " --silent";
-        return cmd;
-    }
-
     public static string BuildChocoInstall(string id, string? version, bool yes)
     {
         var cmd = $"choco install {id}";
@@ -36,16 +24,6 @@ public static class CommandBuilder
         return cmd;
     }
 
-    public static string BuildWingetUpgrade(string id, bool acceptAgreements, bool interactive)
-    {
-        var cmd = $"winget upgrade --id {id}";
-        if (acceptAgreements)
-            cmd += " --accept-source-agreements --accept-package-agreements";
-        if (!interactive)
-            cmd += " --silent";
-        return cmd;
-    }
-
     public static string BuildChocoUpgrade(string id, bool yes)
     {
         return $"choco upgrade {id}" + (yes ? " -y" : "");
@@ -54,16 +32,6 @@ public static class CommandBuilder
     public static string BuildScoopUpgrade(string id)
     {
         return $"scoop update {id}";
-    }
-
-    public static string BuildWingetUninstall(string id, bool acceptAgreements, bool interactive)
-    {
-        var cmd = $"winget uninstall --id {id}";
-        if (acceptAgreements)
-            cmd += " --accept-source-agreements --accept-package-agreements";
-        if (!interactive)
-            cmd += " --silent";
-        return cmd;
     }
 
     public static string BuildChocoUninstall(string id, bool yes)

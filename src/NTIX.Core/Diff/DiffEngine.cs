@@ -8,8 +8,25 @@ public static class DiffEngine
     public static DiffResult ComputeDiff(
         NTIXConfig config, 
         State state, 
-        InstalledPackages? installed = null)
+        InstalledPackages? installed = null,
+        IWingetManager? wingetManager = null)
     {
+        var (valid, error, warnings) = PackageManagerDetector.ValidateManagers(config.Options, config);
+        if (!valid)
+        {
+            return new DiffResult(
+                ToInstall: new(),
+                ToUpgrade: new(),
+                ToRemove: new(),
+                ToSkip: new(),
+                Error: error,
+                Warnings: warnings
+            );
+        }
+
+        foreach (var w in warnings)
+            Console.Error.WriteLine($"[warn] {w}");
+
         var result = new DiffResult();
         var installedPkgs = installed ?? PackageManagerDetector.GetInstalledPackages();
 
@@ -26,7 +43,7 @@ public static class DiffEngine
         var scoopEnabled = config.Options?.Scoop?.Enable ?? false;
 
         var wingetUpgradable = (hasWingetUnpinned && wingetEnabled) 
-            ? PackageManagerDetector.GetWingetUpgradablePackages() 
+            ? PackageManagerDetector.GetWingetUpgradablePackages(() => wingetManager ?? new WingetManager()) 
             : new Dictionary<string, UpgradeInfo>();
         var chocoUpgradable = (hasChocoUnpinned && chocoEnabled) 
             ? PackageManagerDetector.GetChocoUpgradablePackages() 
@@ -172,6 +189,14 @@ public static class DiffEngine
 
     public static void PrintDiff(DiffResult diff)
     {
+        if (!string.IsNullOrEmpty(diff.Error))
+        {
+            Console.Error.WriteLine($"[error] {diff.Error}");
+            foreach (var w in diff.Warnings)
+                Console.Error.WriteLine($"[warn] {w}");
+            return;
+        }
+
         if (diff.ToInstall.Count > 0)
         {
             Console.WriteLine("To install:");
@@ -204,5 +229,8 @@ public static class DiffEngine
         {
             Console.WriteLine("Nothing to do.");
         }
+
+        foreach (var w in diff.Warnings)
+            Console.Error.WriteLine($"[warn] {w}");
     }
 }

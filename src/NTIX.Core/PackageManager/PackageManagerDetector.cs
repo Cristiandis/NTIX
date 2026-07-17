@@ -7,16 +7,6 @@ namespace NTIX.Core.PackageManager;
 
 public static class PackageManagerDetector
 {
-    public static PMStatus Detect() => new(
-        IsWingetInstalled(),
-        IsChocolateyInstalled(),
-        IsScoopInstalled()
-    );
-
-    public static bool IsWingetInstalled() => RunCommandHidden("winget --version") != null;
-    public static bool IsChocolateyInstalled() => RunCommandHidden("choco --version") != null;
-    public static bool IsScoopInstalled() => RunCommandHidden("scoop --version") != null;
-
     public static bool IsRunningAsAdmin()
     {
         try
@@ -28,32 +18,80 @@ public static class PackageManagerDetector
         catch { return false; }
     }
 
-    public static InstalledPackages GetInstalledPackages()
-    {
-        var result = new InstalledPackages();
+    public static bool IsChocolateyInstalled() => RunCommandHidden("choco --version") != null;
+    public static bool IsScoopInstalled() => RunCommandHidden("scoop --version") != null;
 
-        // Winget
-        var wingetOut = RunCommand("winget export -o - --accept-source-agreements --accept-package-agreements 2>nul");
-        if (!string.IsNullOrEmpty(wingetOut))
+    public static async Task<(bool Valid, string? Error, List<string> Warnings)> ValidateManagersAsync(
+        NTIXOptions options, 
+        NTIXConfig config, 
+        IWingetManager? wingetManager = null)
+    {
+        var warnings = new List<string>();
+
+        if (options.Chocolatey.Enable && !IsChocolateyInstalled())
+            return (false, "Chocolatey is enabled but not installed. Install from https://chocolatey.org/install", warnings);
+
+        if (options.Scoop.Enable && !IsScoopInstalled())
+            return (false, "Scoop is enabled but not installed. Install from https://scoop.sh", warnings);
+
+        if (options.Winget.Enable)
         {
-            try
+            var mgr = wingetManager ?? new WingetManager();
+            if (!mgr.IsInstalled)
             {
-                using var doc = JsonDocument.Parse(wingetOut);
-                if (doc.RootElement.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var item in doc.RootElement.EnumerateArray())
-                    {
-                        var id = item.GetProperty("PackageIdentifier").GetString();
-                        var ver = item.GetProperty("Version").GetString();
-                        if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(ver))
-                            result.Winget[id] = ver;
-                    }
-                }
+                await mgr.EnsureInstalledAsync();
+                if (!mgr.IsInstalled)
+                    return (false, "Winget is enabled but not installed. Auto-install failed. Install from https://github.com/microsoft/winget-cli", warnings);
             }
-            catch { }
         }
 
-        // Chocolatey
+        if (config.ChocoPackages.Count > 0 && !options.Chocolatey.Enable)
+            warnings.Add("[warn] Chocolatey packages declared but chocolatey not enabled in options");
+
+        if (config.ScoopPackages.Count > 0 && !options.Scoop.Enable)
+            warnings.Add("[warn] Scoop packages declared but scoop not enabled in options");
+
+        return (true, null, warnings);
+    }
+
+    public static (bool Valid, string? Error, List<string> Warnings) ValidateManagers(
+        NTIXOptions options, 
+        NTIXConfig config)
+    {
+        var warnings = new List<string>();
+        options ??= new NTIXOptions();
+
+        if ((options.Chocolatey?.Enable ?? false) && !IsChocolateyInstalled())
+            return (false, "Chocolatey is enabled but not installed. Install from https://chocolatey.org/install", warnings);
+
+        if ((options.Scoop?.Enable ?? false) && !IsScoopInstalled())
+            return (false, "Scoop is enabled but not installed. Install from https://scoop.sh", warnings);
+
+        if (config.ChocoPackages.Count > 0 && !(options.Chocolatey?.Enable ?? false))
+            warnings.Add("[warn] Chocolatey packages declared but chocolatey not enabled in options");
+
+        if (config.ScoopPackages.Count > 0 && !(options.Scoop?.Enable ?? false))
+            warnings.Add("[warn] Scoop packages declared but scoop not enabled in options");
+
+        return (true, null, warnings);
+    }
+
+    public static async Task<InstalledPackages> GetInstalledPackagesAsync(Func<IWingetManager>? wingetFactory = null)
+    {
+        var result = new InstalledPackages();
+        var factory = wingetFactory ?? (() => new WingetManager());
+        var wingetManager = factory();
+
+        try
+        {
+            var wingetPackages = await wingetManager.GetInstalledPackagesAsync();
+            foreach (var kvp in wingetPackages)
+            {
+                result.Winget[kvp.Key] = kvp.Value;
+            }
+        }
+        catch { }
+
         var chocoOut = RunCommand("choco list -r --local-only --limit-output 2>nul");
         if (!string.IsNullOrEmpty(chocoOut))
         {
@@ -67,7 +105,6 @@ public static class PackageManagerDetector
             }
         }
 
-        // Scoop
         var scoopOut = RunCommand("scoop list --local-only --limit-output 2>nul");
         if (!string.IsNullOrEmpty(scoopOut))
         {
@@ -84,32 +121,16 @@ public static class PackageManagerDetector
         return result;
     }
 
-    public static Dictionary<string, UpgradeInfo> GetWingetUpgradablePackages()
+    public static InstalledPackages GetInstalledPackages() => GetInstalledPackagesAsync().GetAwaiter().GetResult();
+
+    public static async Task<Dictionary<string, UpgradeInfo>> GetWingetUpgradablePackagesAsync(Func<IWingetManager>? wingetFactory = null)
     {
-        var result = new Dictionary<string, UpgradeInfo>();
-        var output = RunCommand("winget list --upgrade-available --accept-source-agreements 2>nul");
-        if (string.IsNullOrEmpty(output)) return result;
-
-        var lines = output.Split('\n');
-        var colRegex = new Regex(@"\s{2,}");
-
-        for (int i = 2; i < lines.Length; i++) // Skip header and separator
-        {
-            var line = lines[i].Trim();
-            if (string.IsNullOrEmpty(line)) continue;
-
-            var cols = colRegex.Split(line);
-            if (cols.Length >= 5)
-            {
-                var id = cols[1].Trim();
-                var cur = cols[2].Trim();
-                var avail = cols[3].Trim();
-                if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(cur) && !string.IsNullOrEmpty(avail))
-                    result[id] = new UpgradeInfo(cur, avail);
-            }
-        }
-        return result;
+        var factory = wingetFactory ?? (() => new WingetManager());
+        var wingetManager = factory();
+        return await wingetManager.GetUpgradablePackagesAsync();
     }
+
+    public static Dictionary<string, UpgradeInfo> GetWingetUpgradablePackages(Func<IWingetManager>? wingetFactory = null) => GetWingetUpgradablePackagesAsync(wingetFactory).GetAwaiter().GetResult();
 
     public static Dictionary<string, UpgradeInfo> GetChocoUpgradablePackages()
     {
@@ -151,6 +172,19 @@ public static class PackageManagerDetector
             }
         }
         catch { }
+        return result;
+    }
+
+    public static async Task<Dictionary<string, UpgradeInfo>> GetAllUpgradablePackagesAsync(Func<IWingetManager>? wingetFactory = null)
+    {
+        var winget = await GetWingetUpgradablePackagesAsync(wingetFactory);
+        var choco = GetChocoUpgradablePackages();
+        var scoop = GetScoopUpgradablePackages();
+
+        var result = new Dictionary<string, UpgradeInfo>();
+        foreach (var kvp in winget) result[kvp.Key] = kvp.Value;
+        foreach (var kvp in choco) result[kvp.Key] = kvp.Value;
+        foreach (var kvp in scoop) result[kvp.Key] = kvp.Value;
         return result;
     }
 
@@ -200,5 +234,3 @@ public static class PackageManagerDetector
         catch { return string.Empty; }
     }
 }
-
-public record PMStatus(bool Winget = false, bool Chocolatey = false, bool Scoop = false);
