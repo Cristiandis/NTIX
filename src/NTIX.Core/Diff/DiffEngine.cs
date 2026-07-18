@@ -52,137 +52,13 @@ public static class DiffEngine
             ? PackageManagerDetector.GetScoopUpgradablePackages() 
             : new Dictionary<string, UpgradeInfo>();
 
-        if (wingetEnabled)
-        {
-            foreach (var pkg in config.WingetPackages)
-            {
-                var spec = new PackageSpec(pkg.Id, pkg.Version, "winget");
-                var isInstalled = wingetInstalled.Contains(pkg.Id);
-                var inState = state.Winget.ContainsKey(pkg.Id);
+        ClassifyPackages(result, config.WingetPackages, "winget", wingetEnabled, wingetInstalled, state.Winget, wingetUpgradable);
+        ClassifyPackages(result, config.ChocoPackages, "chocolatey", chocoEnabled, chocoInstalled, state.Chocolatey, chocoUpgradable);
+        ClassifyPackages(result, config.ScoopPackages, "scoop", scoopEnabled, scoopInstalled, state.Scoop, scoopUpgradable);
 
-                if (pkg.Version == null)
-                {
-                    if (wingetUpgradable.TryGetValue(pkg.Id, out var upgrade))
-                    {
-                        spec = spec with { Version = upgrade.AvailableVersion };
-                        result.ToUpgrade.Add(spec);
-                    }
-                    else if (!isInstalled && !inState)
-                    {
-                        result.ToInstall.Add(spec);
-                    }
-                    else if (isInstalled)
-                    {
-                        result.ToSkip.Add(spec);
-                    }
-                    else if (inState)
-                    {
-                        result.ToInstall.Add(spec);
-                    }
-                }
-                else
-                {
-                    if (inState)
-                        result.ToSkip.Add(spec);
-                    else
-                        result.ToInstall.Add(spec);
-                }
-            }
-        }
-
-        if (chocoEnabled)
-        {
-            foreach (var pkg in config.ChocoPackages)
-            {
-                var spec = new PackageSpec(pkg.Id, pkg.Version, "chocolatey");
-                var isInstalled = chocoInstalled.Contains(pkg.Id);
-                var inState = state.Chocolatey.ContainsKey(pkg.Id);
-
-                if (pkg.Version == null)
-                {
-                    if (chocoUpgradable.TryGetValue(pkg.Id, out var upgrade))
-                    {
-                        spec = spec with { Version = upgrade.AvailableVersion };
-                        result.ToUpgrade.Add(spec);
-                    }
-                    else if (!isInstalled && !inState)
-                    {
-                        result.ToInstall.Add(spec);
-                    }
-                    else if (isInstalled)
-                    {
-                        result.ToSkip.Add(spec);
-                    }
-                    else if (inState)
-                    {
-                        result.ToInstall.Add(spec);
-                    }
-                }
-                else
-                {
-                    if (inState)
-                        result.ToSkip.Add(spec);
-                    else
-                        result.ToInstall.Add(spec);
-                }
-            }
-        }
-
-        if (scoopEnabled)
-        {
-            foreach (var pkg in config.ScoopPackages)
-            {
-                var spec = new PackageSpec(pkg.Id, pkg.Version, "scoop");
-                var isInstalled = scoopInstalled.Contains(pkg.Id);
-                var inState = state.Scoop.ContainsKey(pkg.Id);
-
-                if (pkg.Version == null)
-                {
-                    if (scoopUpgradable.TryGetValue(pkg.Id, out var upgrade))
-                    {
-                        spec = spec with { Version = upgrade.AvailableVersion };
-                        result.ToUpgrade.Add(spec);
-                    }
-                    else if (!isInstalled && !inState)
-                    {
-                        result.ToInstall.Add(spec);
-                    }
-                    else if (isInstalled)
-                    {
-                        result.ToSkip.Add(spec);
-                    }
-                    else if (inState)
-                    {
-                        result.ToInstall.Add(spec);
-                    }
-                }
-                else
-                {
-                    if (inState)
-                        result.ToSkip.Add(spec);
-                    else
-                        result.ToInstall.Add(spec);
-                }
-            }
-        }
-
-        foreach (var (id, ver) in state.Winget)
-        {
-            if (!config.WingetPackages.Any(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase)))
-                result.ToRemove.Add(new PackageSpec(id, ver, "winget"));
-        }
-
-        foreach (var (id, ver) in state.Chocolatey)
-        {
-            if (!config.ChocoPackages.Any(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase)))
-                result.ToRemove.Add(new PackageSpec(id, ver, "chocolatey"));
-        }
-
-        foreach (var (id, ver) in state.Scoop)
-        {
-            if (!config.ScoopPackages.Any(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase)))
-                result.ToRemove.Add(new PackageSpec(id, ver, "scoop"));
-        }
+        FindOrphans(result, state.Winget, config.WingetPackages, "winget");
+        FindOrphans(result, state.Chocolatey, config.ChocoPackages, "chocolatey");
+        FindOrphans(result, state.Scoop, config.ScoopPackages, "scoop");
 
         return result;
     }
@@ -232,5 +108,65 @@ public static class DiffEngine
 
         foreach (var w in diff.Warnings)
             Console.Error.WriteLine($"[warn] {w}");
+    }
+
+    private static void ClassifyPackages(
+        DiffResult result,
+        List<PackageEntry> packages,
+        string sourceName,
+        bool enabled,
+        HashSet<string> installed,
+        Dictionary<string, string> stateDict,
+        Dictionary<string, UpgradeInfo> upgradable)
+    {
+        if (!enabled) return;
+
+        foreach (var pkg in packages)
+        {
+            var spec = new PackageSpec(pkg.Id, pkg.Version, sourceName);
+            var isInstalled = installed.Contains(pkg.Id);
+            var inState = stateDict.ContainsKey(pkg.Id);
+
+            if (pkg.Version == null)
+            {
+                if (upgradable.TryGetValue(pkg.Id, out var upgrade))
+                {
+                    spec = spec with { Version = upgrade.AvailableVersion };
+                    result.ToUpgrade.Add(spec);
+                }
+                else if (!isInstalled && !inState)
+                {
+                    result.ToInstall.Add(spec);
+                }
+                else if (isInstalled)
+                {
+                    result.ToSkip.Add(spec);
+                }
+                else if (inState)
+                {
+                    result.ToInstall.Add(spec);
+                }
+            }
+            else
+            {
+                if (inState)
+                    result.ToSkip.Add(spec);
+                else
+                    result.ToInstall.Add(spec);
+            }
+        }
+    }
+
+    private static void FindOrphans(
+        DiffResult result,
+        Dictionary<string, string> stateDict,
+        List<PackageEntry> configPackages,
+        string sourceName)
+    {
+        foreach (var (id, ver) in stateDict)
+        {
+            if (!configPackages.Any(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase)))
+                result.ToRemove.Add(new PackageSpec(id, ver, sourceName));
+        }
     }
 }
