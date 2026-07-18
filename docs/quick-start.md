@@ -14,6 +14,11 @@ scoop bucket add ntix https://github.com/Cristiandis/scoop-ntix
 scoop install ntix
 ```
 
+```powershell
+# PowerShell one-liner (runs the installer silently)
+iwr -useb https://raw.githubusercontent.com/Cristiandis/NTIX/master/install.ps1 | iex
+```
+
 ```bash
 # Build from source
 git clone https://github.com/Cristiandis/NTIX.git
