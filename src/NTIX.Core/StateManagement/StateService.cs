@@ -6,25 +6,11 @@ namespace NTIX.Core.StateManagement;
 
 [JsonSerializable(typeof(State))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
-[JsonSerializable(typeof(List<PackageEntry>))]
-[JsonSerializable(typeof(NTIXConfig))]
-[JsonSerializable(typeof(NTIXOptions))]
-[JsonSerializable(typeof(WingetOptions))]
-[JsonSerializable(typeof(ChocoOptions))]
-[JsonSerializable(typeof(ScoopOptions))]
-[JsonSerializable(typeof(PackageEntry))]
+[JsonSourceGenerationOptions(WriteIndented = true, PropertyNameCaseInsensitive = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal partial class StateJsonContext : JsonSerializerContext { }
 
 public static class StateService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        TypeInfoResolver = StateJsonContext.Default
-    };
-
     public static string GetStatePath()
     {
         var localAppData = Environment.GetEnvironmentVariable("LOCALAPPDATA");
@@ -50,7 +36,7 @@ public static class StateService
         try
         {
             var json = File.ReadAllText(statePath);
-            return JsonSerializer.Deserialize<State>(json, JsonOptions);
+            return JsonSerializer.Deserialize(json, StateJsonContext.Default.State);
         }
         catch (JsonException)
         {
@@ -72,7 +58,7 @@ public static class StateService
             return false;
         }
 
-        var json = JsonSerializer.Serialize(state, JsonOptions);
+        var json = JsonSerializer.Serialize(state, StateJsonContext.Default.State);
 
         for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
@@ -112,7 +98,7 @@ public static class StateService
             return false;
         }
 
-        var json = JsonSerializer.Serialize(state, JsonOptions);
+        var json = JsonSerializer.Serialize(state, StateJsonContext.Default.State);
 
         for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
