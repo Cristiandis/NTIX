@@ -1,0 +1,16 @@
+# Table of contents
+
+* [Home](README.md)
+* [Introduction](introduction.md)
+* [Quick Start](quick-start.md)
+* [Configuration](configuration/README.md)
+  * [Options Reference](configuration/options-reference.md)
+  * [Package Lists](configuration/package-lists.md)
+  * [Multi-Environment](configuration/multi-environment.md)
+* [Commands](commands/README.md)
+  * [diff](commands/diff.md)
+  * [apply](commands/apply.md)
+  * [state](commands/state.md)
+* [How It Works](how-it-works.md)
+* [Contributing](contributing.md)
+* [Roadmap](roadmap.md)
