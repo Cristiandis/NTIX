@@ -6,7 +6,7 @@
 
 Declare your desired packages in Lua. NTIX figures out what to install, upgrade, and remove across winget, Chocolatey, and Scoop.
 
-[Read the docs](https://cristiandis.gitbook.io/ntix) · [Quick Start](https://cristiandis.gitbook.io/ntix/quick-start) · [Report a Bug](https://github.com/cristianizzo/NTIX/issues)
+[Read the docs](https://cristiandis.gitbook.io/ntix) · [Quick Start](https://cristiandis.gitbook.io/ntix/quick-start) · [Report a Bug](https://github.com/Cristiandis/NTIX/issues)
 
 ## Quick Start
 
