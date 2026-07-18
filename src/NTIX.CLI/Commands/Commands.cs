@@ -6,6 +6,7 @@ using NTIX.Core.StateManagement;
 using NTIX.Core.Diff;
 using NTIX.Core.Execution;
 using NTIX.Core.Lock;
+using NTIX.Core;
 using Spectre.Console;
 
 namespace NTIX.CLI.Commands;
@@ -24,6 +25,14 @@ public partial class ApplyCommand : ICommand
 
     public async ValueTask ExecuteAsync(IConsole console)
     {
+        if (!ProcessHelper.IsRunningAsAdmin())
+        {
+            AnsiConsole.MarkupLine("[red]Error: ntix apply requires administrator privileges.[/]");
+            AnsiConsole.MarkupLine("Please re-run in an elevated terminal (Run as Administrator).");
+            Environment.ExitCode = 1;
+            return;
+        }
+
         var config = ConfigLoader.Load(ConfigPath);
         var state = StateService.LoadState() ?? new NTIX.Core.Models.State();
         var diff = DiffEngine.ComputeDiff(config, state);

@@ -160,7 +160,7 @@ public static class ConfigLoader
     /// Recursively merges <paramref name="source"/> into <paramref name="target"/>.
     /// Nested tables are merged key-by-key; scalars overwrite.
     /// </summary>
-    private static void DeepMergeTable(LuaTable source, LuaTable target)
+    private static void DeepMergeTable(LuaTable target, LuaTable source)
     {
         foreach (var kvp in source)
         {

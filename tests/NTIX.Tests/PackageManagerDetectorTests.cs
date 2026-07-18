@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Moq;
+using NTIX.Core;
 using NTIX.Core.Models;
 using NTIX.Core.PackageManager;
 
@@ -78,7 +79,7 @@ public class PackageManagerDetectorTests
     [Fact]
     public void IsRunningAsAdmin_ReturnsBool()
     {
-        var result = PackageManagerDetector.IsRunningAsAdmin();
+        var result = ProcessHelper.IsRunningAsAdmin();
         (result == true || result == false).Should().BeTrue();
     }
 }

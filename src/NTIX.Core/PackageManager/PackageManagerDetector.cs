@@ -7,23 +7,13 @@ namespace NTIX.Core.PackageManager;
 
 public static class PackageManagerDetector
 {
-    public static bool IsRunningAsAdmin()
-    {
-        try
-        {
-            var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
-            var principal = new System.Security.Principal.WindowsPrincipal(identity);
-            return principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
-        }
-        catch { return false; }
-    }
 
     public static bool IsChocolateyInstalled() => RunCommandHidden("choco --version") != null;
     public static bool IsScoopInstalled() => RunCommandHidden("scoop --version") != null;
 
     public static async Task<(bool Valid, string? Error, List<string> Warnings)> ValidateManagersAsync(
-        NTIXOptions options, 
-        NTIXConfig config, 
+        NTIXOptions options,
+        NTIXConfig config,
         IWingetManager? wingetManager = null)
     {
         var warnings = new List<string>();
@@ -55,7 +45,7 @@ public static class PackageManagerDetector
     }
 
     public static (bool Valid, string? Error, List<string> Warnings) ValidateManagers(
-        NTIXOptions options, 
+        NTIXOptions options,
         NTIXConfig config)
     {
         var warnings = new List<string>();
@@ -65,7 +55,7 @@ public static class PackageManagerDetector
             return (false, "Chocolatey is enabled but not installed. Install from https://chocolatey.org/install", warnings);
 
         if ((options.Scoop?.Enable ?? false) && !IsScoopInstalled())
-            return (false, "Scoop is enabled but not installed. Install from https://scoop.sh", warnings);
+            return (false, "Scoop is enabled but not installed. Install from https://scoop.sh (make sure to install as admin)", warnings);
 
         if (config.ChocoPackages.Count > 0 && !(options.Chocolatey?.Enable ?? false))
             warnings.Add("[warn] Chocolatey packages declared but chocolatey not enabled in options");
