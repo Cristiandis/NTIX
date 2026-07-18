@@ -8,8 +8,8 @@ namespace NTIX.Core.PackageManager;
 public static class PackageManagerDetector
 {
 
-    public static bool IsChocolateyInstalled() => RunCommandHidden("choco --version") != null;
-    public static bool IsScoopInstalled() => RunCommandHidden("scoop --version") != null;
+    public static bool IsChocolateyInstalled() => RunProcess("choco --version") != null;
+    public static bool IsScoopInstalled() => RunProcess("scoop --version") != null;
 
     public static async Task<(bool Valid, string? Error, List<string> Warnings)> ValidateManagersAsync(
         NTIXOptions options,
@@ -82,7 +82,7 @@ public static class PackageManagerDetector
         }
         catch { }
 
-        var chocoOut = RunCommand("choco list -r --local-only --limit-output 2>nul");
+        var chocoOut = RunProcess("choco list -r --local-only --limit-output 2>nul", redirectStderr: true);
         if (!string.IsNullOrEmpty(chocoOut))
         {
             var regex = new Regex(@"^([^|]+)\|([^|]+)\|.*$", RegexOptions.Multiline);
@@ -95,7 +95,7 @@ public static class PackageManagerDetector
             }
         }
 
-        var scoopOut = RunCommand("scoop list --local-only --limit-output 2>nul");
+        var scoopOut = RunProcess("scoop list --local-only --limit-output 2>nul", redirectStderr: true);
         if (!string.IsNullOrEmpty(scoopOut))
         {
             var regex = new Regex(@"^([^\s]+)\s+([^\s]+)\s+.*$", RegexOptions.Multiline);
@@ -125,7 +125,7 @@ public static class PackageManagerDetector
     public static Dictionary<string, UpgradeInfo> GetChocoUpgradablePackages()
     {
         var result = new Dictionary<string, UpgradeInfo>();
-        var output = RunCommand("choco outdated --limit-output 2>nul");
+        var output = RunProcess("choco outdated --limit-output 2>nul", redirectStderr: true);
         if (string.IsNullOrEmpty(output)) return result;
 
         var regex = new Regex(@"^([^|]+)\|([^|]+)\|([^|]+)\|.*$", RegexOptions.Multiline);
@@ -143,7 +143,7 @@ public static class PackageManagerDetector
     public static Dictionary<string, UpgradeInfo> GetScoopUpgradablePackages()
     {
         var result = new Dictionary<string, UpgradeInfo>();
-        var output = RunCommand("scoop status --json 2>nul");
+        var output = RunProcess("scoop status --json 2>nul", redirectStderr: true);
         if (string.IsNullOrEmpty(output)) return result;
 
         try
@@ -178,19 +178,28 @@ public static class PackageManagerDetector
         return result;
     }
 
-    private static string? RunCommandHidden(string cmd)
+    private static string? RunProcess(string cmd, bool redirectStderr = false)
     {
         try
         {
             var psi = new ProcessStartInfo
             {
                 FileName = "cmd.exe",
-                Arguments = $"/c {cmd} 2>nul",
+                Arguments = redirectStderr
+                    ? $"/c {cmd} 2>&1"
+                    : $"/c {cmd} 2>nul",
                 RedirectStandardOutput = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 StandardOutputEncoding = System.Text.Encoding.UTF8
             };
+
+            if (redirectStderr)
+            {
+                psi.RedirectStandardError = true;
+                psi.StandardErrorEncoding = System.Text.Encoding.UTF8;
+            }
+
             using var p = Process.Start(psi);
             if (p == null) return null;
             var output = p.StandardOutput.ReadToEnd();
@@ -198,29 +207,5 @@ public static class PackageManagerDetector
             return output.Trim();
         }
         catch { return null; }
-    }
-
-    private static string RunCommand(string cmd)
-    {
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "cmd.exe",
-                Arguments = $"/c {cmd} 2>&1",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                StandardOutputEncoding = System.Text.Encoding.UTF8,
-                StandardErrorEncoding = System.Text.Encoding.UTF8
-            };
-            using var p = Process.Start(psi);
-            if (p == null) return string.Empty;
-            var output = p.StandardOutput.ReadToEnd();
-            p.WaitForExit();
-            return output.Trim();
-        }
-        catch { return string.Empty; }
     }
 }
