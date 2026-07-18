@@ -44,12 +44,12 @@ public static class ExecutionEngine
             bool success = pkg.Source switch
             {
                 "winget" => await manager.InstallAsync(pkg.Id, pkg.Version, options.Winget.AcceptAgreements, !options.Winget.Interactive),
-                "chocolatey" => RunCommand(CommandBuilder.BuildChocoInstall(pkg.Id, pkg.Version, options.Chocolatey.Yes)) == 0,
-                "scoop" => RunCommand(CommandBuilder.BuildScoopInstall(pkg.Id, pkg.Version, options.Scoop.Buckets)) == 0,
+                "chocolatey" => await RunCommandAsync(CommandBuilder.BuildChocoInstall(pkg.Id, pkg.Version, options.Chocolatey.Yes)) == 0,
+                "scoop" => await RunCommandAsync(CommandBuilder.BuildScoopInstall(pkg.Id, pkg.Version, options.Scoop.Buckets)) == 0,
                 _ => throw new InvalidOperationException($"Unknown source: {pkg.Source}")
             };
 
-if (success)
+            if (success)
             {
                 UpdateState(state, pkg, true);
                 StateService.SaveState(state, statePath);
@@ -71,8 +71,8 @@ if (success)
             bool success = pkg.Source switch
             {
                 "winget" => await manager.UpgradeAsync(pkg.Id, options.Winget.AcceptAgreements, !options.Winget.Interactive),
-                "chocolatey" => RunCommand(CommandBuilder.BuildChocoUpgrade(pkg.Id, options.Chocolatey.Yes)) == 0,
-                "scoop" => RunCommand(CommandBuilder.BuildScoopUpgrade(pkg.Id)) == 0,
+                "chocolatey" => await RunCommandAsync(CommandBuilder.BuildChocoUpgrade(pkg.Id, options.Chocolatey.Yes)) == 0,
+                "scoop" => await RunCommandAsync(CommandBuilder.BuildScoopUpgrade(pkg.Id)) == 0,
                 _ => throw new InvalidOperationException($"Unknown source: {pkg.Source}")
             };
 
@@ -98,8 +98,8 @@ if (success)
             bool success = pkg.Source switch
             {
                 "winget" => await manager.UninstallAsync(pkg.Id, options.Winget.AcceptAgreements, !options.Winget.Interactive),
-                "chocolatey" => RunCommand(CommandBuilder.BuildChocoUninstall(pkg.Id, options.Chocolatey.Yes)) == 0,
-                "scoop" => RunCommand(CommandBuilder.BuildScoopUninstall(pkg.Id)) == 0,
+                "chocolatey" => await RunCommandAsync(CommandBuilder.BuildChocoUninstall(pkg.Id, options.Chocolatey.Yes)) == 0,
+                "scoop" => await RunCommandAsync(CommandBuilder.BuildScoopUninstall(pkg.Id)) == 0,
                 _ => throw new InvalidOperationException($"Unknown source: {pkg.Source}")
             };
 
@@ -118,9 +118,6 @@ if (success)
 
         return allOk;
     }
-
-    public static bool ApplyDiff(DiffResult diff, NTIXOptions options, State state, string statePath, bool stopOnFailure = true)
-        => ApplyDiffAsync(diff, options, state, statePath, stopOnFailure).GetAwaiter().GetResult();
 
     private static bool IsEnabled(string source, NTIXOptions options) => source switch
     {
@@ -146,7 +143,7 @@ if (success)
             dict.Remove(pkg.Id);
     }
 
-    private static int RunCommand(string command)
+    private static async Task<int> RunCommandAsync(string command)
     {
         var psi = new ProcessStartInfo
         {
@@ -168,7 +165,7 @@ if (success)
 
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
-        process.WaitForExit();
+        await process.WaitForExitAsync();
 
         return process.ExitCode;
     }

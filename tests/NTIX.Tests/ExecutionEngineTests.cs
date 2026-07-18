@@ -15,7 +15,7 @@ namespace NTIX.Tests;
 public class ExecutionEngineTests
 {
     [Fact]
-    public void ApplyDiff_EmptyDiff_ReturnsTrue()
+    public async Task ApplyDiff_EmptyDiff_ReturnsTrue()
     {
         var diff = new DiffResult();
         var options = new NTIXOptions(new WingetOptions(), new ChocoOptions(), new ScoopOptions());
@@ -23,7 +23,7 @@ public class ExecutionEngineTests
         var tempPath = Path.GetTempFileName();
         File.Delete(tempPath); // just get a valid path
         
-        var result = ExecutionEngine.ApplyDiff(diff, options, state, tempPath);
+        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath);
         result.Should().BeTrue();
     }
 
