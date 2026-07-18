@@ -70,4 +70,46 @@ public class CommandBuilderTests
         var cmd = CommandBuilder.BuildScoopInfo("7zip");
         cmd.Should().Be("scoop info 7zip");
     }
+
+    [Fact]
+    public void BuildChocoUpgrade_WithYes()
+    {
+        var cmd = CommandBuilder.BuildChocoUpgrade("nodejs", true);
+        cmd.Should().Be("choco upgrade nodejs -y");
+    }
+
+    [Fact]
+    public void BuildChocoUpgrade_WithoutYes()
+    {
+        var cmd = CommandBuilder.BuildChocoUpgrade("nodejs", false);
+        cmd.Should().Be("choco upgrade nodejs");
+    }
+
+    [Fact]
+    public void BuildScoopUpgrade_ReturnsScoopUpdateCommand()
+    {
+        var cmd = CommandBuilder.BuildScoopUpgrade("nodejs");
+        cmd.Should().Be("scoop update nodejs");
+    }
+
+    [Fact]
+    public void BuildChocoUninstall_WithYes()
+    {
+        var cmd = CommandBuilder.BuildChocoUninstall("nodejs", true);
+        cmd.Should().Be("choco uninstall nodejs -y");
+    }
+
+    [Fact]
+    public void BuildChocoUninstall_WithoutYes()
+    {
+        var cmd = CommandBuilder.BuildChocoUninstall("nodejs", false);
+        cmd.Should().Be("choco uninstall nodejs");
+    }
+
+    [Fact]
+    public void BuildScoopUninstall_ReturnsScoopUninstallCommand()
+    {
+        var cmd = CommandBuilder.BuildScoopUninstall("nodejs");
+        cmd.Should().Be("scoop uninstall nodejs");
+    }
 }

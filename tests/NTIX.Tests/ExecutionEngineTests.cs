@@ -439,4 +439,115 @@ public class ExecutionEngineTests
             if (File.Exists(tempPath)) File.Delete(tempPath);
         }
     }
+
+    [Fact]
+    public async Task ApplyDiffAsync_ChocoDisabled_SkipsChocoPackage()
+    {
+        var diff = new DiffResult(
+            ToInstall: new List<PackageSpec> { new("choco-pkg", "1.0", "chocolatey") });
+        var options = new NTIXOptions(
+            new WingetOptions(),
+            new ChocoOptions(Enable: false),
+            new ScoopOptions());
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath);
+
+            result.Should().BeTrue();
+            state.Chocolatey.Should().BeEmpty();
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_ScoopDisabled_SkipsScoopPackage()
+    {
+        var diff = new DiffResult(
+            ToInstall: new List<PackageSpec> { new("scoop-pkg", "1.0", "scoop") });
+        var options = new NTIXOptions(
+            new WingetOptions(),
+            new ChocoOptions(),
+            new ScoopOptions(Enable: false));
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath);
+
+            result.Should().BeTrue();
+            state.Scoop.Should().BeEmpty();
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_ConfigWithChocoValidationFails_ReturnsFalse()
+    {
+        var diff = new DiffResult(
+            ToInstall: new List<PackageSpec> { new("test-pkg", "1.0", "winget") });
+        var options = new NTIXOptions(
+            new WingetOptions(),
+            new ChocoOptions(Enable: true),
+            new ScoopOptions());
+        var config = new NTIXConfig(options);
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, config: config);
+
+            result.Should().BeTrue();
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_ConfigValidationWithWarnings_StillProcesses()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.InstallAsync("winget-pkg", "1.0", true, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var diff = new DiffResult(
+            ToInstall: new List<PackageSpec> { new("winget-pkg", "1.0", "winget") });
+        var options = new NTIXOptions(
+            new WingetOptions(Enable: true, AcceptAgreements: true, Interactive: false),
+            new ChocoOptions(Enable: false),
+            new ScoopOptions(Enable: false));
+        var config = new NTIXConfig(options,
+            ChocoPackages: new List<PackageEntry> { new("choco-declared", "1.0") },
+            ScoopPackages: new List<PackageEntry> { new("scoop-declared", "1.0") });
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object, config: config);
+
+            result.Should().BeTrue();
+            state.Winget.Should().ContainKey("winget-pkg");
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
 }

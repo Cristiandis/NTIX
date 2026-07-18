@@ -1,3 +1,4 @@
+using System;
 using System.Runtime.Versioning;
 using FluentAssertions;
 using Moq;
@@ -80,5 +81,134 @@ public class PackageManagerDetectorTests
         var result = ProcessHelper.IsRunningAsAdmin();
         Action act = () => { var _ = result; };
         act.Should().NotThrow();
+    }
+
+    [Fact]
+    public async Task ValidateManagersAsync_ScoopDisabled_ReturnsValid()
+    {
+        var options = new NTIXOptions(
+            new WingetOptions(),
+            new ChocoOptions(),
+            new ScoopOptions(Enable: false));
+        var config = new NTIXConfig(options);
+
+        var (valid, error, warnings) = await PackageManagerDetector.ValidateManagersAsync(options, config);
+
+        valid.Should().BeTrue();
+        error.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ValidateManagersAsync_ChocoDisabled_ReturnsValid()
+    {
+        var options = new NTIXOptions(
+            new WingetOptions(),
+            new ChocoOptions(Enable: false),
+            new ScoopOptions());
+        var config = new NTIXConfig(options);
+
+        var (valid, error, warnings) = await PackageManagerDetector.ValidateManagersAsync(options, config);
+
+        valid.Should().BeTrue();
+        error.Should().BeNull();
+    }
+
+    [Fact]
+    public void ValidateManagers_ScoopDisabled_ReturnsValid()
+    {
+        var options = new NTIXOptions(
+            new WingetOptions(),
+            new ChocoOptions(),
+            new ScoopOptions(Enable: false));
+        var config = new NTIXConfig(options);
+
+        var (valid, error, warnings) = PackageManagerDetector.ValidateManagers(options, config);
+
+        valid.Should().BeTrue();
+        error.Should().BeNull();
+    }
+
+    [Fact]
+    public void ValidateManagers_ChocoDisabled_ReturnsValid()
+    {
+        var options = new NTIXOptions(
+            new WingetOptions(),
+            new ChocoOptions(Enable: false),
+            new ScoopOptions());
+        var config = new NTIXConfig(options);
+
+        var (valid, error, warnings) = PackageManagerDetector.ValidateManagers(options, config);
+
+        valid.Should().BeTrue();
+        error.Should().BeNull();
+    }
+
+    [Fact]
+    public void ValidateManagers_ScoopPackagesDeclared_NotEnabled_GeneratesWarning()
+    {
+        var options = new NTIXOptions(
+            new WingetOptions(),
+            new ChocoOptions(),
+            new ScoopOptions(Enable: false));
+        var config = new NTIXConfig(options,
+            ScoopPackages: new List<PackageEntry> { new("pkg1", "1.0") });
+
+        var (valid, _, warnings) = PackageManagerDetector.ValidateManagers(options, config);
+
+        valid.Should().BeTrue();
+        warnings.Should().Contain(w => w.Contains("Scoop packages declared but scoop not enabled"));
+    }
+
+    [Fact]
+    public void ValidateManagers_ChocoPackagesDeclared_NotEnabled_GeneratesWarning()
+    {
+        var options = new NTIXOptions(
+            new WingetOptions(),
+            new ChocoOptions(Enable: false),
+            new ScoopOptions());
+        var config = new NTIXConfig(options,
+            ChocoPackages: new List<PackageEntry> { new("pkg1", "1.0") });
+
+        var (valid, _, warnings) = PackageManagerDetector.ValidateManagers(options, config);
+
+        valid.Should().BeTrue();
+        warnings.Should().Contain(w => w.Contains("Chocolatey packages declared but chocolatey not enabled"));
+    }
+
+    [Fact]
+    public void ValidateManagers_NullOptions_DefaultsToNew()
+    {
+        var config = new NTIXConfig(new NTIXOptions());
+
+        var (valid, _, warnings) = PackageManagerDetector.ValidateManagers(null!, config);
+
+        valid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ValidateManagers_SyncWithOptions_ReturnsValid()
+    {
+        var options = new NTIXOptions(
+            new WingetOptions(),
+            new ChocoOptions(Enable: false),
+            new ScoopOptions(Enable: false));
+        var config = new NTIXConfig(options);
+
+        var (valid, _, warnings) = PackageManagerDetector.ValidateManagers(options, config);
+
+        valid.Should().BeTrue();
+        warnings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetInstalledPackagesAsync_WingetManagerThrows_ReturnsEmptyWinget()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new Exception("winget error"));
+
+        var result = await PackageManagerDetector.GetInstalledPackagesAsync(() => mockWinget.Object);
+
+        result.Winget.Should().BeEmpty();
     }
 }

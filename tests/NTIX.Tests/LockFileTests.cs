@@ -160,4 +160,20 @@ public class LockFileTests
             Directory.Delete(tempDir, true);
         }
     }
+
+    [Fact]
+    public void GetDefaultLockPath_ReturnsPathUnderLocalAppData()
+    {
+        var path = LockFile.GetDefaultLockPath();
+        var localAppData = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+        path.Should().StartWith(localAppData);
+        path.Should().EndWith(Path.Combine("ntix", "apply.lock"));
+    }
+
+    [Fact]
+    public void GetDefaultLockPath_ContainsNtixFolder()
+    {
+        var path = LockFile.GetDefaultLockPath();
+        path.Should().Contain("ntix");
+    }
 }
