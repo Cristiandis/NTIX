@@ -1,9 +1,11 @@
+using System.Runtime.Versioning;
 using System.Security.Principal;
 
 namespace NTIX.Core;
 
 public static class ProcessHelper
 {
+    [SupportedOSPlatform("windows")]
     public static bool IsRunningAsAdmin()
     {
         try
