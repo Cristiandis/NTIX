@@ -17,5 +17,6 @@ public interface IWingetManager
     Task<bool> ExportPackagesAsync(string filePath, CancellationToken ct = default);
     Task<bool> ImportPackagesAsync(string filePath, CancellationToken ct = default);
     Task<string?> GetVersionAsync(CancellationToken ct = default);
+    Task<bool> PackageExistsAsync(string id, CancellationToken ct = default);
     Task EnsureInstalledAsync(bool interactive = false, CancellationToken ct = default);
 }

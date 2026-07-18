@@ -178,7 +178,23 @@ public static class PackageManagerDetector
         return result;
     }
 
-    private static string? RunProcess(string cmd, bool redirectStderr = false)
+    public static bool ValidateChocoPackageExists(string id)
+    {
+        var output = RunProcess(CommandBuilder.BuildChocoSearch(id), redirectStderr: true);
+        if (string.IsNullOrEmpty(output)) return false;
+        var regex = new Regex($@"^{Regex.Escape(id)}\|", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+        return regex.IsMatch(output);
+    }
+
+    public static bool ValidateScoopPackageExists(string id)
+    {
+        var output = RunProcess(CommandBuilder.BuildScoopInfo(id), redirectStderr: true);
+        if (string.IsNullOrEmpty(output)) return false;
+        var pattern = new Regex(@"^\s*Name\s*:", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+        return pattern.IsMatch(output);
+    }
+
+    internal static string? RunProcess(string cmd, bool redirectStderr = false)
     {
         try
         {
@@ -193,12 +209,6 @@ public static class PackageManagerDetector
                 CreateNoWindow = true,
                 StandardOutputEncoding = System.Text.Encoding.UTF8
             };
-
-            if (redirectStderr)
-            {
-                psi.RedirectStandardError = true;
-                psi.StandardErrorEncoding = System.Text.Encoding.UTF8;
-            }
 
             using var p = Process.Start(psi);
             if (p == null) return null;

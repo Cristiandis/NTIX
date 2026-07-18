@@ -43,4 +43,14 @@ public static class CommandBuilder
     {
         return $"scoop uninstall {id}";
     }
+
+    public static string BuildChocoSearch(string id)
+    {
+        return $"choco search {id} --limit-output";
+    }
+
+    public static string BuildScoopInfo(string id)
+    {
+        return $"scoop info {id}";
+    }
 }

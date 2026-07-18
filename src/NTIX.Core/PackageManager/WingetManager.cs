@@ -139,6 +139,20 @@ public sealed class WingetManager : IWingetManager
         return info?.VersionString;
     }
 
+    public async Task<bool> PackageExistsAsync(string id, CancellationToken ct = default)
+    {
+        try
+        {
+            var packages = await _packageManager.SearchPackageAsync(id, true, ct);
+            return packages.Any(p =>
+                string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
     public async Task EnsureInstalledAsync(bool interactive = false, CancellationToken ct = default)
     {
         if (!await IsInstalledAsync(ct))

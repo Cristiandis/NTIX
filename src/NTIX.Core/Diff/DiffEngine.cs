@@ -9,7 +9,8 @@ public static class DiffEngine
         NTIXConfig config, 
         State state, 
         InstalledPackages? installed = null,
-        IWingetManager? wingetManager = null)
+        IWingetManager? wingetManager = null,
+        bool validatePackages = true)
     {
         var (valid, error, warnings) = PackageManagerDetector.ValidateManagers(config.Options, config);
         if (!valid)
@@ -55,6 +56,9 @@ public static class DiffEngine
         ClassifyPackages(result, config.WingetPackages, "winget", wingetEnabled, wingetInstalled, state.Winget, wingetUpgradable);
         ClassifyPackages(result, config.ChocoPackages, "chocolatey", chocoEnabled, chocoInstalled, state.Chocolatey, chocoUpgradable);
         ClassifyPackages(result, config.ScoopPackages, "scoop", scoopEnabled, scoopInstalled, state.Scoop, scoopUpgradable);
+
+        if (validatePackages)
+            ValidatePackageAvailability(result, wingetManager, wingetEnabled, chocoEnabled, scoopEnabled);
 
         FindOrphans(result, state.Winget, config.WingetPackages, "winget");
         FindOrphans(result, state.Chocolatey, config.ChocoPackages, "chocolatey");
@@ -176,5 +180,80 @@ public static class DiffEngine
             if (!configPackages.Any(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase)))
                 result.ToRemove.Add(new PackageSpec(id, ver, sourceName));
         }
+    }
+
+    private static void ValidatePackageAvailability(
+        DiffResult result,
+        IWingetManager? wingetManager,
+        bool wingetEnabled,
+        bool chocoEnabled,
+        bool scoopEnabled)
+    {
+        var invalid = new List<PackageSpec>();
+
+        var wingetPkgs = result.ToInstall.Where(p => p.Source == "winget").ToList();
+        var chocoPkgs = result.ToInstall.Where(p => p.Source == "chocolatey").ToList();
+        var scoopPkgs = result.ToInstall.Where(p => p.Source == "scoop").ToList();
+
+        if (wingetEnabled && wingetPkgs.Count > 0)
+        {
+            var mgr = wingetManager ?? new WingetManager();
+            foreach (var pkg in wingetPkgs)
+            {
+                try
+                {
+                    if (!mgr.PackageExistsAsync(pkg.Id).GetAwaiter().GetResult())
+                    {
+                        result.Warnings.Add($"Package not found in winget: {pkg.Id}");
+                        invalid.Add(pkg);
+                    }
+                }
+                catch
+                {
+                    result.Warnings.Add($"Could not verify package in winget: {pkg.Id}");
+                }
+            }
+        }
+
+        if (chocoEnabled && chocoPkgs.Count > 0)
+        {
+            foreach (var pkg in chocoPkgs)
+            {
+                try
+                {
+                    if (!PackageManagerDetector.ValidateChocoPackageExists(pkg.Id))
+                    {
+                        result.Warnings.Add($"Package not found in chocolatey: {pkg.Id}");
+                        invalid.Add(pkg);
+                    }
+                }
+                catch
+                {
+                    result.Warnings.Add($"Could not verify package in chocolatey: {pkg.Id}");
+                }
+            }
+        }
+
+        if (scoopEnabled && scoopPkgs.Count > 0)
+        {
+            foreach (var pkg in scoopPkgs)
+            {
+                try
+                {
+                    if (!PackageManagerDetector.ValidateScoopPackageExists(pkg.Id))
+                    {
+                        result.Warnings.Add($"Package not found in scoop: {pkg.Id}");
+                        invalid.Add(pkg);
+                    }
+                }
+                catch
+                {
+                    result.Warnings.Add($"Could not verify package in scoop: {pkg.Id}");
+                }
+            }
+        }
+
+        foreach (var pkg in invalid)
+            result.ToInstall.Remove(pkg);
     }
 }

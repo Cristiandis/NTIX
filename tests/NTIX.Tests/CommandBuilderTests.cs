@@ -56,4 +56,18 @@ public class CommandBuilderTests
         var cmd = CommandBuilder.BuildChocoInstall("nodejs", null, false);
         cmd.Should().Be("choco install nodejs");
     }
+
+    [Fact]
+    public void BuildChocoSearch_IncludesLimitOutput()
+    {
+        var cmd = CommandBuilder.BuildChocoSearch("7zip");
+        cmd.Should().Be("choco search 7zip --limit-output");
+    }
+
+    [Fact]
+    public void BuildScoopInfo_ReturnsScoopInfoCommand()
+    {
+        var cmd = CommandBuilder.BuildScoopInfo("7zip");
+        cmd.Should().Be("scoop info 7zip");
+    }
 }

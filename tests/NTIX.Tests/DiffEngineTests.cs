@@ -33,7 +33,7 @@ public class DiffEngineTests
             new List<PackageEntry> { new("testpkg", null) });
         var state = new State();
         
-        var diff = DiffEngine.ComputeDiff(config, state);
+        var diff = DiffEngine.ComputeDiff(config, state, validatePackages: false);
         diff.ToInstall.Should().HaveCount(1);
         diff.ToInstall[0].Id.Should().Be("testpkg");
     }
@@ -95,7 +95,7 @@ public class DiffEngineTests
             ChocoPackages: new List<PackageEntry> { new("choco-in-state", "1.0"), new("choco-not-in-state", "1.0") });
         var state = new State { Chocolatey = new Dictionary<string, string> { { "choco-in-state", "1.0" } } };
         
-        var diff = DiffEngine.ComputeDiff(config, state, installed);
+        var diff = DiffEngine.ComputeDiff(config, state, installed, validatePackages: false);
         diff.ToSkip.Should().HaveCount(1);
         diff.ToSkip[0].Id.Should().Be("choco-in-state");
         diff.ToInstall.Should().HaveCount(1);
@@ -114,7 +114,7 @@ public class DiffEngineTests
             ScoopPackages: new List<PackageEntry> { new("scoop-in-state", "1.0"), new("scoop-not-in-state", "1.0") });
         var state = new State { Scoop = new Dictionary<string, string> { { "scoop-in-state", "1.0" } } };
         
-        var diff = DiffEngine.ComputeDiff(config, state, installed);
+        var diff = DiffEngine.ComputeDiff(config, state, installed, validatePackages: false);
         diff.ToSkip.Should().HaveCount(1);
         diff.ToSkip[0].Id.Should().Be("scoop-in-state");
         diff.ToInstall.Should().HaveCount(1);
@@ -177,6 +177,8 @@ public class DiffEngineTests
         var mockWinget = new Mock<IWingetManager>();
         mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+        mockWinget.Setup(m => m.PackageExistsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         var installed = new InstalledPackages();
         var config = new NTIXConfig(
@@ -198,6 +200,8 @@ public class DiffEngineTests
         var mockWinget = new Mock<IWingetManager>();
         mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+        mockWinget.Setup(m => m.PackageExistsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         var installed = new InstalledPackages();
         var config = new NTIXConfig(
@@ -214,6 +218,14 @@ public class DiffEngineTests
     [Fact]
     public void ComputeDiff_PinnedVersionMismatch_ToInstall()
     {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string> { { "mismatch-pkg", "1.0" } });
+        mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+        mockWinget.Setup(m => m.PackageExistsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
         var installed = new InstalledPackages
         {
             Winget = new Dictionary<string, string> { { "mismatch-pkg", "1.0" } }
@@ -223,7 +235,7 @@ public class DiffEngineTests
             WingetPackages: new List<PackageEntry> { new("mismatch-pkg", "2.0") });
         var state = new State { Winget = new Dictionary<string, string> { { "mismatch-pkg", "1.0" } } };
 
-        var diff = DiffEngine.ComputeDiff(config, state, installed);
+        var diff = DiffEngine.ComputeDiff(config, state, installed, mockWinget.Object);
 
         diff.ToInstall.Should().HaveCount(1);
         diff.ToInstall[0].Id.Should().Be("mismatch-pkg");
@@ -274,6 +286,8 @@ public class DiffEngineTests
             .ReturnsAsync(new Dictionary<string, string> { { "winget-current", "1.0" } });
         mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+        mockWinget.Setup(m => m.PackageExistsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         var installed = new InstalledPackages
         {
@@ -304,7 +318,7 @@ public class DiffEngineTests
             Scoop = new Dictionary<string, string>()
         };
 
-        var diff = DiffEngine.ComputeDiff(config, state, installed, mockWinget.Object);
+        var diff = DiffEngine.ComputeDiff(config, state, installed, mockWinget.Object, validatePackages: false);
 
         diff.ToSkip.Should().Contain(s => s.Id == "winget-current");
         diff.ToInstall.Should().Contain(s => s.Id == "winget-new" && s.Source == "winget");
@@ -312,5 +326,102 @@ public class DiffEngineTests
         diff.ToInstall.Should().Contain(s => s.Id == "choco-new" && s.Source == "chocolatey");
         diff.ToInstall.Should().Contain(s => s.Id == "scoop-new" && s.Source == "scoop");
         diff.ToRemove.Should().Contain(s => s.Id == "choco-orphan");
+    }
+
+    [Fact]
+    public void ComputeDiff_NonexistentWingetPackage_BecomesWarning()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string>());
+        mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+        mockWinget.Setup(m => m.PackageExistsAsync("real-pkg", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        mockWinget.Setup(m => m.PackageExistsAsync("fake-pkg", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var installed = new InstalledPackages();
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(), new ScoopOptions()),
+            WingetPackages: new List<PackageEntry> { new("real-pkg", null), new("fake-pkg", null) });
+        var state = new State();
+
+        var diff = DiffEngine.ComputeDiff(config, state, installed, mockWinget.Object);
+
+        diff.ToInstall.Should().HaveCount(1);
+        diff.ToInstall[0].Id.Should().Be("real-pkg");
+        diff.Warnings.Should().Contain(w => w.Contains("fake-pkg"));
+    }
+
+    [Fact]
+    public void ComputeDiff_NonexistentWingetPackage_RemovedFromToInstall()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string>());
+        mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+        mockWinget.Setup(m => m.PackageExistsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var installed = new InstalledPackages();
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(), new ScoopOptions()),
+            WingetPackages: new List<PackageEntry> { new("only-fake", null) });
+        var state = new State();
+
+        var diff = DiffEngine.ComputeDiff(config, state, installed, mockWinget.Object);
+
+        diff.ToInstall.Should().BeEmpty();
+        diff.Warnings.Should().Contain(w => w.Contains("only-fake"));
+    }
+
+    [Fact]
+    public void ComputeDiff_InstalledPackage_NotValidated()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string> { { "existing-pkg", "1.0" } });
+        mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+
+        var installed = new InstalledPackages
+        {
+            Winget = new Dictionary<string, string> { { "existing-pkg", "1.0" } }
+        };
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(), new ScoopOptions()),
+            WingetPackages: new List<PackageEntry> { new("existing-pkg", null) });
+        var state = new State { Winget = new Dictionary<string, string> { { "existing-pkg", "1.0" } } };
+
+        var diff = DiffEngine.ComputeDiff(config, state, installed, mockWinget.Object);
+
+        diff.ToSkip.Should().HaveCount(1);
+        mockWinget.Verify(m => m.PackageExistsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public void ComputeDiff_WingetValidationThrows_GracefulDegradation()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string>());
+        mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+        mockWinget.Setup(m => m.PackageExistsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new Exception("network error"));
+
+        var installed = new InstalledPackages();
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(), new ScoopOptions()),
+            WingetPackages: new List<PackageEntry> { new("some-pkg", null) });
+        var state = new State();
+
+        var diff = DiffEngine.ComputeDiff(config, state, installed, mockWinget.Object);
+
+        diff.ToInstall.Should().HaveCount(1);
+        diff.ToInstall[0].Id.Should().Be("some-pkg");
+        diff.Warnings.Should().Contain(w => w.Contains("Could not verify"));
     }
 }
