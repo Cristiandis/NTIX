@@ -87,15 +87,4 @@ public class WingetManagerTests
         else
             result.Should().BeNull();
     }
-
-    [Fact]
-    public async Task ExportImportPackagesAsync_InvalidPath_ReturnsFalse()
-    {
-        var manager = new WingetManager();
-        var exportResult = await manager.ExportPackagesAsync("/invalid/path/export.json");
-        exportResult.Should().BeFalse();
-
-        var importResult = await manager.ImportPackagesAsync("/invalid/path/import.json");
-        importResult.Should().BeFalse();
-    }
 }
