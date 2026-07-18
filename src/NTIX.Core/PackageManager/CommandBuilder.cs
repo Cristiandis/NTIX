@@ -14,9 +14,9 @@ public static class CommandBuilder
 
     public static string BuildScoopInstall(string id, string? version, List<string> buckets)
     {
-        var cmd = $"scoop install {id}";
-        if (!string.IsNullOrEmpty(version))
-            cmd += $" --version {version}";
+        var cmd = string.IsNullOrEmpty(version)
+            ? $"scoop install {id}"
+            : $"scoop install {id}@{version}";
         foreach (var bucket in buckets)
         {
             cmd += $" --bucket {bucket}";

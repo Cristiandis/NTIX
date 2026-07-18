@@ -212,7 +212,7 @@ public class DiffEngineTests
     }
 
     [Fact]
-    public void ComputeDiff_PinnedVersionMismatch_ToSkip()
+    public void ComputeDiff_PinnedVersionMismatch_ToInstall()
     {
         var installed = new InstalledPackages
         {
@@ -225,8 +225,27 @@ public class DiffEngineTests
 
         var diff = DiffEngine.ComputeDiff(config, state, installed);
 
+        diff.ToInstall.Should().HaveCount(1);
+        diff.ToInstall[0].Id.Should().Be("mismatch-pkg");
+        diff.ToInstall[0].Version.Should().Be("2.0");
+        diff.ToSkip.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ComputeDiff_PinnedVersionMismatch_CaseInsensitive_ToInstall()
+    {
+        var installed = new InstalledPackages
+        {
+            Winget = new Dictionary<string, string> { { "case-pkg", "1.0" } }
+        };
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(), new ScoopOptions()),
+            WingetPackages: new List<PackageEntry> { new("case-pkg", "1.0") });
+        var state = new State { Winget = new Dictionary<string, string> { { "case-pkg", "1.0" } } };
+
+        var diff = DiffEngine.ComputeDiff(config, state, installed);
+
         diff.ToSkip.Should().HaveCount(1);
-        diff.ToSkip[0].Id.Should().Be("mismatch-pkg");
         diff.ToInstall.Should().BeEmpty();
     }
 

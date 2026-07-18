@@ -28,4 +28,32 @@ public class CommandBuilderTests
         cmd.Should().Contain("--bucket main");
         cmd.Should().Contain("--bucket extras");
     }
+
+    [Fact]
+    public void BuildScoopInstall_WithVersion_UsesAtSyntax()
+    {
+        var cmd = CommandBuilder.BuildScoopInstall("nodejs", "16.14.2", new List<string>());
+        cmd.Should().Be("scoop install nodejs@16.14.2");
+    }
+
+    [Fact]
+    public void BuildScoopInstall_WithoutVersion_NoAt()
+    {
+        var cmd = CommandBuilder.BuildScoopInstall("nodejs", null, new List<string>());
+        cmd.Should().Be("scoop install nodejs");
+    }
+
+    [Fact]
+    public void BuildChocoInstall_WithVersion_UsesVersionFlag()
+    {
+        var cmd = CommandBuilder.BuildChocoInstall("nodejs", "16.14.2", true);
+        cmd.Should().Be("choco install nodejs --version 16.14.2 -y");
+    }
+
+    [Fact]
+    public void BuildChocoInstall_WithoutVersion_NoVersionFlag()
+    {
+        var cmd = CommandBuilder.BuildChocoInstall("nodejs", null, false);
+        cmd.Should().Be("choco install nodejs");
+    }
 }

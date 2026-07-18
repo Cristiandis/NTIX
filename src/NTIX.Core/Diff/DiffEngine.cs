@@ -150,9 +150,17 @@ public static class DiffEngine
             else
             {
                 if (inState)
-                    result.ToSkip.Add(spec);
+                {
+                    var stateVersion = stateDict[pkg.Id];
+                    if (!string.Equals(stateVersion, pkg.Version, StringComparison.OrdinalIgnoreCase))
+                        result.ToInstall.Add(spec);
+                    else
+                        result.ToSkip.Add(spec);
+                }
                 else
+                {
                     result.ToInstall.Add(spec);
+                }
             }
         }
     }
