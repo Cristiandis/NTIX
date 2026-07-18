@@ -7,6 +7,33 @@ namespace NTIX.Core.Config;
 public static class ConfigLoader
 {
     private static readonly string[] PackageListKeys = { "winget", "chocolatey", "scoop" };
+
+    private static readonly string DefaultConfigDir =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ntix");
+
+    public static readonly string DefaultConfigPath =
+        Path.Combine(DefaultConfigDir, "config.lua");
+
+    private const string DefaultConfigContent = """
+        return {
+            options = {},
+            pkgs = {}
+        }
+        """;
+
+    public static string EnsureDefaultConfig(string? configPath)
+    {
+        var path = configPath ?? DefaultConfigPath;
+
+        if (configPath is null && !File.Exists(path))
+        {
+            Directory.CreateDirectory(DefaultConfigDir);
+            File.WriteAllText(path, DefaultConfigContent);
+        }
+
+        return path;
+    }
+
     public static NTIXConfig Load(string configPath)
     {
         if (!File.Exists(configPath))

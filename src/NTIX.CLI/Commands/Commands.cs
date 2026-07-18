@@ -15,8 +15,8 @@ namespace NTIX.CLI.Commands;
 [Command("apply", Description = "Apply desired state (install/remove packages)")]
 public partial class ApplyCommand : ICommand
 {
-    [CommandParameter(0, Name = "config-path", Description = "Path to configuration file (e.g., /path/to/config.lua)")]
-    public required string ConfigPath { get; set; }
+    [CommandParameter(0, Name = "config-path", Description = "Path to configuration file (default: ~/ntix/config.lua)")]
+    public string? ConfigPath { get; set; }
 
     [CommandOption("dry-run", 'd', Description = "Show what would change without applying")]
     public bool DryRun { get; set; }
@@ -38,6 +38,14 @@ public partial class ApplyCommand : ICommand
             return;
         }
 
+        var isNew = ConfigPath is null && !File.Exists(ConfigLoader.DefaultConfigPath);
+        ConfigPath = ConfigLoader.EnsureDefaultConfig(ConfigPath);
+        if (isNew)
+        {
+            AnsiConsole.MarkupLine($"[green]Created default config at {ConfigPath}[/]");
+            AnsiConsole.MarkupLine("Edit it to add your packages, then run [bold]ntix diff[/] again.");
+            return;
+        }
         var config = ConfigLoader.Load(ConfigPath);
         var state = StateService.LoadState() ?? new NTIX.Core.Models.State();
         var diff = DiffEngine.ComputeDiff(config, state);
@@ -75,11 +83,19 @@ public partial class ApplyCommand : ICommand
 [Command("diff", Description = "Show what would change")]
 public partial class DiffCommand : ICommand
 {
-    [CommandParameter(0, Name = "config-path", Description = "Path to configuration file (e.g., /path/to/config.lua)")]
-    public required string ConfigPath { get; set; }
+    [CommandParameter(0, Name = "config-path", Description = "Path to configuration file (default: ~/ntix/config.lua)")]
+    public string? ConfigPath { get; set; }
 
     public async ValueTask ExecuteAsync(IConsole console)
     {
+        var isNew = ConfigPath is null && !File.Exists(ConfigLoader.DefaultConfigPath);
+        ConfigPath = ConfigLoader.EnsureDefaultConfig(ConfigPath);
+        if (isNew)
+        {
+            AnsiConsole.MarkupLine($"[green]Created default config at {ConfigPath}[/]");
+            AnsiConsole.MarkupLine("Edit it to add your packages, then run [bold]ntix diff[/] again.");
+            return;
+        }
         var config = ConfigLoader.Load(ConfigPath);
         var state = StateService.LoadState() ?? new NTIX.Core.Models.State();
         var diff = DiffEngine.ComputeDiff(config, state);
