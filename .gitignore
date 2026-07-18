@@ -35,6 +35,10 @@ bld/
 TestResults/
 *.trx
 
+# Coverage
+coverage.xml
+*.acv
+
 # NuGet
 packages/
 *.nupkg
@@ -49,5 +53,8 @@ packages/
 Thumbs.db
 .DS_Store
 
-# MoonSharp
-*.moon
+# Native AOT publish output
+publish/
+
+# Lock files
+*.lock

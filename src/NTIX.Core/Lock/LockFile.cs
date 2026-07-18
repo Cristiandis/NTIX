@@ -24,9 +24,10 @@ public class LockFile : IDisposable
             try
             {
                 // Try to open with FileShare.None to see if we can get exclusive access
-                using var checkStream = File.Open(_lockPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                using var checkStream = File.Open(_lockPath, FileMode.Open, FileAccess.Read, FileShare.None);
                 // If we got here, file is not locked - read content to check if it's a stale lock
-                var content = File.ReadAllText(_lockPath).Trim();
+                using var reader = new StreamReader(checkStream);
+                var content = reader.ReadToEnd().Trim();
                 if (!string.IsNullOrEmpty(content))
                 {
                     throw new InvalidOperationException(

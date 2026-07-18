@@ -18,6 +18,11 @@ public class DiffEngineTests
         var state = new State();
         var diff = DiffEngine.ComputeDiff(config, state);
         diff.IsEmpty.Should().BeTrue();
+        diff.ToInstall.Should().BeEmpty();
+        diff.ToUpgrade.Should().BeEmpty();
+        diff.ToSkip.Should().BeEmpty();
+        diff.ToRemove.Should().BeEmpty();
+        diff.HasError.Should().BeFalse();
     }
 
     [Fact]
@@ -114,5 +119,179 @@ public class DiffEngineTests
         diff.ToSkip[0].Id.Should().Be("scoop-in-state");
         diff.ToInstall.Should().HaveCount(1);
         diff.ToInstall[0].Id.Should().Be("scoop-not-in-state");
+    }
+
+    [Fact]
+    public void ComputeDiff_UnpinnedPkgWithUpgrade_ToUpgrade()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string> { { "upgradable-pkg", "1.0" } });
+        mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, UpgradeInfo>
+            {
+                { "upgradable-pkg", new UpgradeInfo("1.0", "2.0") }
+            });
+
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(), new ScoopOptions()),
+            new List<PackageEntry> { new("upgradable-pkg", null) });
+        var state = new State { Winget = new Dictionary<string, string> { { "upgradable-pkg", "1.0" } } };
+
+        var diff = DiffEngine.ComputeDiff(config, state, wingetManager: mockWinget.Object);
+
+        diff.ToUpgrade.Should().HaveCount(1);
+        diff.ToUpgrade[0].Id.Should().Be("upgradable-pkg");
+        diff.ToUpgrade[0].Version.Should().Be("2.0");
+        diff.ToSkip.Should().BeEmpty();
+        diff.ToInstall.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ComputeDiff_UnpinnedPkgInstalled_NoUpgrade_ToSkip()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+
+        var installed = new InstalledPackages
+        {
+            Winget = new Dictionary<string, string> { { "current-pkg", "1.0" } }
+        };
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(), new ScoopOptions()),
+            new List<PackageEntry> { new("current-pkg", null) });
+        var state = new State { Winget = new Dictionary<string, string> { { "current-pkg", "1.0" } } };
+
+        var diff = DiffEngine.ComputeDiff(config, state, installed, mockWinget.Object);
+
+        diff.ToSkip.Should().HaveCount(1);
+        diff.ToSkip[0].Id.Should().Be("current-pkg");
+        diff.ToUpgrade.Should().BeEmpty();
+        diff.ToInstall.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ComputeDiff_UnpinnedPkgNotInstalled_NotInState_ToInstall()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+
+        var installed = new InstalledPackages();
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(), new ScoopOptions()),
+            new List<PackageEntry> { new("new-pkg", null) });
+        var state = new State();
+
+        var diff = DiffEngine.ComputeDiff(config, state, installed, mockWinget.Object);
+
+        diff.ToInstall.Should().HaveCount(1);
+        diff.ToInstall[0].Id.Should().Be("new-pkg");
+        diff.ToUpgrade.Should().BeEmpty();
+        diff.ToSkip.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ComputeDiff_UnpinnedPkgInState_NotInstalled_ToInstall()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+
+        var installed = new InstalledPackages();
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(), new ScoopOptions()),
+            new List<PackageEntry> { new("drifted-pkg", null) });
+        var state = new State { Winget = new Dictionary<string, string> { { "drifted-pkg", "1.0" } } };
+
+        var diff = DiffEngine.ComputeDiff(config, state, installed, mockWinget.Object);
+
+        diff.ToInstall.Should().HaveCount(1);
+        diff.ToInstall[0].Id.Should().Be("drifted-pkg");
+    }
+
+    [Fact]
+    public void ComputeDiff_PinnedVersionMismatch_ToSkip()
+    {
+        var installed = new InstalledPackages
+        {
+            Winget = new Dictionary<string, string> { { "mismatch-pkg", "1.0" } }
+        };
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(), new ScoopOptions()),
+            WingetPackages: new List<PackageEntry> { new("mismatch-pkg", "2.0") });
+        var state = new State { Winget = new Dictionary<string, string> { { "mismatch-pkg", "1.0" } } };
+
+        var diff = DiffEngine.ComputeDiff(config, state, installed);
+
+        diff.ToSkip.Should().HaveCount(1);
+        diff.ToSkip[0].Id.Should().Be("mismatch-pkg");
+        diff.ToInstall.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ComputeDiff_DisabledManager_SkipsPackages()
+    {
+        var installed = new InstalledPackages();
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(), new ChocoOptions(Enable: false), new ScoopOptions()),
+            ChocoPackages: new List<PackageEntry> { new("choco-pkg", "1.0") });
+        var state = new State();
+
+        var diff = DiffEngine.ComputeDiff(config, state, installed);
+
+        diff.ToInstall.Should().BeEmpty();
+        diff.ToUpgrade.Should().BeEmpty();
+        diff.ToSkip.Should().BeEmpty();
+        diff.ToRemove.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ComputeDiff_MultipleManagers_AllEnabled()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string> { { "winget-current", "1.0" } });
+        mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+
+        var installed = new InstalledPackages
+        {
+            Winget = new Dictionary<string, string> { { "winget-current", "1.0" } },
+            Chocolatey = new Dictionary<string, string> { { "choco-installed", "1.0" } },
+            Scoop = new Dictionary<string, string>()
+        };
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(Enable: true), new ScoopOptions(Enable: true)),
+            WingetPackages: new List<PackageEntry>
+            {
+                new("winget-current", null),
+                new("winget-new", null)
+            },
+            ChocoPackages: new List<PackageEntry>
+            {
+                new("choco-installed", "1.0"),
+                new("choco-new", "1.0")
+            },
+            ScoopPackages: new List<PackageEntry>
+            {
+                new("scoop-new", null)
+            });
+        var state = new State
+        {
+            Winget = new Dictionary<string, string> { { "winget-current", "1.0" } },
+            Chocolatey = new Dictionary<string, string> { { "choco-installed", "1.0" }, { "choco-orphan", "1.0" } },
+            Scoop = new Dictionary<string, string>()
+        };
+
+        var diff = DiffEngine.ComputeDiff(config, state, installed, mockWinget.Object);
+
+        diff.ToSkip.Should().Contain(s => s.Id == "winget-current");
+        diff.ToInstall.Should().Contain(s => s.Id == "winget-new" && s.Source == "winget");
+        diff.ToSkip.Should().Contain(s => s.Id == "choco-installed");
+        diff.ToInstall.Should().Contain(s => s.Id == "choco-new" && s.Source == "chocolatey");
+        diff.ToInstall.Should().Contain(s => s.Id == "scoop-new" && s.Source == "scoop");
+        diff.ToRemove.Should().Contain(s => s.Id == "choco-orphan");
     }
 }

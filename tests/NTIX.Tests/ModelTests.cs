@@ -58,8 +58,14 @@ public class ModelTests
     {
         var options = new NTIXOptions(new WingetOptions(), new ChocoOptions(), new ScoopOptions());
         options.Winget.Should().NotBeNull();
+        options.Winget.Enable.Should().BeFalse();
+        options.Winget.AcceptAgreements.Should().BeFalse();
+        options.Winget.Interactive.Should().BeFalse();
         options.Chocolatey.Should().NotBeNull();
+        options.Chocolatey.Enable.Should().BeFalse();
+        options.Chocolatey.Yes.Should().BeFalse();
         options.Scoop.Should().NotBeNull();
+        options.Scoop.Enable.Should().BeFalse();
     }
 
     [Fact]

@@ -8,6 +8,7 @@ using NTIX.Core.PackageManager;
 
 namespace NTIX.Tests;
 
+[Trait("Category", "Integration")]
 public class WingetManagerTests
 {
     [Fact]
@@ -21,8 +22,8 @@ public class WingetManagerTests
     public void IsInstalled_ReturnsBool()
     {
         var manager = new WingetManager();
-        var result = manager.IsInstalled;
-        (result == true || result == false).Should().BeTrue();
+        Action act = () => { var _ = manager.IsInstalled; };
+        act.Should().NotThrow();
     }
 
     [Fact]
@@ -30,7 +31,8 @@ public class WingetManagerTests
     {
         var manager = new WingetManager();
         var result = await manager.IsInstalledAsync();
-        (result == true || result == false).Should().BeTrue();
+        Func<bool> accessing = () => result;
+        accessing.Should().NotThrow();
     }
 
     [Fact]
@@ -80,7 +82,10 @@ public class WingetManagerTests
     {
         var manager = new WingetManager();
         var result = await manager.GetVersionAsync();
-        (result == null || result != null).Should().BeTrue();
+        if (manager.IsInstalled)
+            result.Should().NotBeNull();
+        else
+            result.Should().BeNull();
     }
 
     [Fact]
@@ -89,7 +94,7 @@ public class WingetManagerTests
         var manager = new WingetManager();
         var exportResult = await manager.ExportPackagesAsync("/invalid/path/export.json");
         exportResult.Should().BeFalse();
-        
+
         var importResult = await manager.ImportPackagesAsync("/invalid/path/import.json");
         importResult.Should().BeFalse();
     }

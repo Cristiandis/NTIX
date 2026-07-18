@@ -78,6 +78,7 @@ public class PackageManagerDetectorTests
     public void IsRunningAsAdmin_ReturnsBool()
     {
         var result = ProcessHelper.IsRunningAsAdmin();
-        (result == true || result == false).Should().BeTrue();
+        Action act = () => { var _ = result; };
+        act.Should().NotThrow();
     }
 }

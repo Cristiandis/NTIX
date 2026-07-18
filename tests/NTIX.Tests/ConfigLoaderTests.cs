@@ -365,4 +365,124 @@ public class ConfigLoaderTests
             Directory.Delete(testDir, true);
         }
     }
+
+    [Fact]
+    public void LoadFromString_EmptyPkgs_ReturnsEmptyLists()
+    {
+        var lua = """
+            options = { winget = { enable = true } }
+            pkgs = {
+                winget = {},
+                chocolatey = {},
+                scoop = {}
+            }
+            return { options = options, pkgs = pkgs }
+            """;
+
+        var config = ConfigLoader.LoadFromString(lua, "test.lua");
+        config.WingetPackages.Should().BeEmpty();
+        config.ChocoPackages.Should().BeEmpty();
+        config.ScoopPackages.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void LoadFromString_MissingPkgsSubKeys_ReturnsEmptyLists()
+    {
+        var lua = """
+            options = { winget = { enable = true } }
+            pkgs = {}
+            return { options = options, pkgs = pkgs }
+            """;
+
+        var config = ConfigLoader.LoadFromString(lua, "test.lua");
+        config.WingetPackages.Should().BeEmpty();
+        config.ChocoPackages.Should().BeEmpty();
+        config.ScoopPackages.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void LoadFromString_MalformedLua_ThrowsSyntaxError()
+    {
+        var lua = """
+            return { options = , pkgs = {} }
+            """;
+
+        var act = () => ConfigLoader.LoadFromString(lua, "test.lua");
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*Lua syntax error*");
+    }
+
+    [Fact]
+    public void LoadFromString_RuntimeError_ThrowsRuntimeError()
+    {
+        var lua = """
+            local x = nil
+            x.foo()
+            """;
+
+        var act = () => ConfigLoader.LoadFromString(lua, "test.lua");
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*Lua runtime error*");
+    }
+
+    [Fact]
+    public void LoadFromString_PackageTableWithoutId_Skipped()
+    {
+        var lua = """
+            options = { winget = { enable = true } }
+            pkgs = {
+                winget = {
+                    { version = "1.0" }
+                }
+            }
+            return { options = options, pkgs = pkgs }
+            """;
+
+        var config = ConfigLoader.LoadFromString(lua, "test.lua");
+        config.WingetPackages.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void LoadFromString_PackageTableIdNoVersion_VersionIsNull()
+    {
+        var lua = """
+            options = { winget = { enable = true } }
+            pkgs = {
+                winget = {
+                    { id = "test-pkg" }
+                }
+            }
+            return { options = options, pkgs = pkgs }
+            """;
+
+        var config = ConfigLoader.LoadFromString(lua, "test.lua");
+        config.WingetPackages.Should().HaveCount(1);
+        config.WingetPackages[0].Id.Should().Be("test-pkg");
+        config.WingetPackages[0].Version.Should().BeNull();
+    }
+
+    [Fact]
+    public void LoadFromString_ReturnsNonTable_Throws()
+    {
+        var lua = """
+            return 42
+            """;
+
+        var act = () => ConfigLoader.LoadFromString(lua, "test.lua");
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*must return a table*");
+    }
+
+    [Fact]
+    public void LoadFromString_ImportInvalidArg_Throws()
+    {
+        var lua = """
+            import(42)
+            return { options = options, pkgs = pkgs }
+            """;
+
+        var act = () => ConfigLoader.LoadFromString(lua, "test.lua");
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*expects a file path string*");
+    }
 }

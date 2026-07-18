@@ -21,23 +21,16 @@ public class ExecutionEngineTests
         var options = new NTIXOptions(new WingetOptions(), new ChocoOptions(), new ScoopOptions());
         var state = new State();
         var tempPath = Path.GetTempFileName();
-        File.Delete(tempPath); // just get a valid path
-        
-        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath);
-        result.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task ApplyDiffAsync_EmptyDiff_ReturnsTrue()
-    {
-        var diff = new DiffResult();
-        var options = new NTIXOptions(new WingetOptions(), new ChocoOptions(), new ScoopOptions());
-        var state = new State();
-        var tempPath = Path.GetTempFileName();
-        File.Delete(tempPath);
-        
-        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath);
-        result.Should().BeTrue();
+        try
+        {
+            File.Delete(tempPath);
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath);
+            result.Should().BeTrue();
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
     }
 
     [Fact]
@@ -55,13 +48,20 @@ public class ExecutionEngineTests
             new ScoopOptions());
         var state = new State();
         var tempPath = Path.GetTempFileName();
-        File.Delete(tempPath);
+        try
+        {
+            File.Delete(tempPath);
 
-        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
-        
-        result.Should().BeTrue();
-        state.Winget.Should().ContainKey("test-pkg").WhoseValue.Should().Be("1.0");
-        mockWinget.Verify(m => m.InstallAsync("test-pkg", "1.0", true, true, It.IsAny<CancellationToken>()), Times.Once);
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
+
+            result.Should().BeTrue();
+            state.Winget.Should().ContainKey("test-pkg").WhoseValue.Should().Be("1.0");
+            mockWinget.Verify(m => m.InstallAsync("test-pkg", "1.0", true, true, It.IsAny<CancellationToken>()), Times.Once);
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
     }
 
     [Fact]
@@ -79,13 +79,20 @@ public class ExecutionEngineTests
             new ScoopOptions());
         var state = new State { Winget = new Dictionary<string, string> { { "test-pkg", "1.0" } } };
         var tempPath = Path.GetTempFileName();
-        File.Delete(tempPath);
+        try
+        {
+            File.Delete(tempPath);
 
-        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
-        
-        result.Should().BeTrue();
-        state.Winget["test-pkg"].Should().Be("2.0");
-        mockWinget.Verify(m => m.UpgradeAsync("test-pkg", true, true, It.IsAny<CancellationToken>()), Times.Once);
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
+
+            result.Should().BeTrue();
+            state.Winget["test-pkg"].Should().Be("2.0");
+            mockWinget.Verify(m => m.UpgradeAsync("test-pkg", true, true, It.IsAny<CancellationToken>()), Times.Once);
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
     }
 
     [Fact]
@@ -103,13 +110,20 @@ public class ExecutionEngineTests
             new ScoopOptions());
         var state = new State { Winget = new Dictionary<string, string> { { "test-pkg", "1.0" } } };
         var tempPath = Path.GetTempFileName();
-        File.Delete(tempPath);
+        try
+        {
+            File.Delete(tempPath);
 
-        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
-        
-        result.Should().BeTrue();
-        state.Winget.Should().NotContainKey("test-pkg");
-        mockWinget.Verify(m => m.UninstallAsync("test-pkg", true, true, It.IsAny<CancellationToken>()), Times.Once);
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
+
+            result.Should().BeTrue();
+            state.Winget.Should().NotContainKey("test-pkg");
+            mockWinget.Verify(m => m.UninstallAsync("test-pkg", true, true, It.IsAny<CancellationToken>()), Times.Once);
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
     }
 
     [Fact]
@@ -131,21 +145,30 @@ public class ExecutionEngineTests
             new WingetOptions(Enable: true, AcceptAgreements: true, Interactive: false),
             new ChocoOptions(Enable: true, Yes: true),
             new ScoopOptions(Enable: true, Buckets: new List<string> { "main" }));
-        var state = new State 
-        { 
+        var state = new State
+        {
             Winget = new Dictionary<string, string> { { "winget-upgrade", "1.0" }, { "winget-remove", "1.0" } },
             Chocolatey = new Dictionary<string, string> { { "choco-pkg", "1.0" } },
             Scoop = new Dictionary<string, string> { { "scoop-pkg", "1.0" } }
         };
         var tempPath = Path.GetTempFileName();
-        File.Delete(tempPath);
+        try
+        {
+            File.Delete(tempPath);
 
-        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
-        
-        result.Should().BeTrue();
-        state.Winget.Should().ContainKey("winget-pkg").WhoseValue.Should().Be("1.0");
-        state.Winget["winget-upgrade"].Should().Be("2.0");
-        state.Winget.Should().NotContainKey("winget-remove");
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
+
+            result.Should().BeTrue();
+            state.Winget.Should().ContainKey("winget-pkg").WhoseValue.Should().Be("1.0");
+            state.Winget["winget-upgrade"].Should().Be("2.0");
+            state.Winget.Should().NotContainKey("winget-remove");
+            state.Chocolatey.Should().ContainKey("choco-pkg");
+            state.Scoop.Should().ContainKey("scoop-pkg");
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
     }
 
     [Fact]
@@ -163,11 +186,257 @@ public class ExecutionEngineTests
             new ScoopOptions());
         var state = new State();
         var tempPath = Path.GetTempFileName();
-        File.Delete(tempPath);
+        try
+        {
+            File.Delete(tempPath);
 
-        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
-        
-        result.Should().BeFalse();
-        state.Winget.Should().NotContainKey("fail-pkg");
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
+
+            result.Should().BeFalse();
+            state.Winget.Should().NotContainKey("fail-pkg");
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_StopOnFalse_ContinuesAfterFailure()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.InstallAsync("fail-pkg", "1.0", true, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+        mockWinget.Setup(m => m.InstallAsync("ok-pkg", "2.0", true, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var diff = new DiffResult(
+            ToInstall: new List<PackageSpec>
+            {
+                new("fail-pkg", "1.0", "winget"),
+                new("ok-pkg", "2.0", "winget")
+            });
+        var options = new NTIXOptions(
+            new WingetOptions(Enable: true, AcceptAgreements: true, Interactive: false),
+            new ChocoOptions(),
+            new ScoopOptions());
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, stopOnFailure: false, wingetManager: mockWinget.Object);
+
+            result.Should().BeFalse();
+            state.Winget.Should().ContainKey("ok-pkg").WhoseValue.Should().Be("2.0");
+            mockWinget.Verify(m => m.InstallAsync("fail-pkg", "1.0", true, true, It.IsAny<CancellationToken>()), Times.Once);
+            mockWinget.Verify(m => m.InstallAsync("ok-pkg", "2.0", true, true, It.IsAny<CancellationToken>()), Times.Once);
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_StopOnTrue_ReturnsEarlyOnFailure()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.InstallAsync("fail-pkg", "1.0", true, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+        mockWinget.Setup(m => m.InstallAsync("ok-pkg", "2.0", true, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var diff = new DiffResult(
+            ToInstall: new List<PackageSpec>
+            {
+                new("fail-pkg", "1.0", "winget"),
+                new("ok-pkg", "2.0", "winget")
+            });
+        var options = new NTIXOptions(
+            new WingetOptions(Enable: true, AcceptAgreements: true, Interactive: false),
+            new ChocoOptions(),
+            new ScoopOptions());
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, stopOnFailure: true, wingetManager: mockWinget.Object);
+
+            result.Should().BeFalse();
+            state.Winget.Should().NotContainKey("ok-pkg");
+            mockWinget.Verify(m => m.InstallAsync("ok-pkg", "2.0", true, true, It.IsAny<CancellationToken>()), Times.Never);
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_DisabledSource_SkipsPackage()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+
+        var diff = new DiffResult(
+            ToInstall: new List<PackageSpec> { new("test-pkg", "1.0", "winget") });
+        var options = new NTIXOptions(
+            new WingetOptions(Enable: false),
+            new ChocoOptions(),
+            new ScoopOptions());
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
+
+            result.Should().BeTrue();
+            state.Winget.Should().BeEmpty();
+            mockWinget.Verify(m => m.InstallAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_NullVersion_RecordsLatest()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.InstallAsync("test-pkg", null, true, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var diff = new DiffResult(
+            ToInstall: new List<PackageSpec> { new("test-pkg", null, "winget") });
+        var options = new NTIXOptions(
+            new WingetOptions(Enable: true, AcceptAgreements: true, Interactive: false),
+            new ChocoOptions(),
+            new ScoopOptions());
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
+
+            result.Should().BeTrue();
+            state.Winget.Should().ContainKey("test-pkg").WhoseValue.Should().Be("latest");
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_DiffHasError_ReturnsFalse()
+    {
+        var diff = new DiffResult(Error: "something went wrong", Warnings: new List<string> { "warning1" });
+        var options = new NTIXOptions(new WingetOptions(), new ChocoOptions(), new ScoopOptions());
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath);
+
+            result.Should().BeFalse();
+            state.Winget.Should().BeEmpty();
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_DiffWithWarnings_StillProcesses()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.InstallAsync("test-pkg", "1.0", true, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var diff = new DiffResult(
+            ToInstall: new List<PackageSpec> { new("test-pkg", "1.0", "winget") },
+            Warnings: new List<string> { "some warning" });
+        var options = new NTIXOptions(
+            new WingetOptions(Enable: true, AcceptAgreements: true, Interactive: false),
+            new ChocoOptions(),
+            new ScoopOptions());
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
+
+            result.Should().BeTrue();
+            state.Winget.Should().ContainKey("test-pkg");
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_ConfigValidationFails_ReturnsFalse()
+    {
+        var diff = new DiffResult(
+            ToInstall: new List<PackageSpec> { new("test-pkg", "1.0", "winget") });
+        var options = new NTIXOptions(
+            new WingetOptions(Enable: true),
+            new ChocoOptions(Enable: true),
+            new ScoopOptions());
+        var config = new NTIXConfig(options);
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, config: config);
+
+            result.Should().BeFalse();
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_UnknownSource_IsSkipped()
+    {
+        var diff = new DiffResult(
+            ToInstall: new List<PackageSpec> { new("test-pkg", "1.0", "unknown") });
+        var options = new NTIXOptions(
+            new WingetOptions(Enable: true, AcceptAgreements: true, Interactive: false),
+            new ChocoOptions(),
+            new ScoopOptions());
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath);
+
+            result.Should().BeTrue();
+            state.Winget.Should().BeEmpty();
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
     }
 }

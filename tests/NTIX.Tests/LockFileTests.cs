@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.RegularExpressions;
 using FluentAssertions;
 using NTIX.Core.Lock;
 
@@ -41,6 +42,118 @@ public class LockFileTests
             var act = () => new LockFile(lockPath);
             act.Should().Throw<InvalidOperationException>()
                 .WithMessage("*Another ntix apply is running*");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void LockFile_StaleLock_ThrowsWithContent()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"ntix_lock_test_{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        var lockPath = Path.Combine(tempDir, "test.lock");
+
+        try
+        {
+            File.WriteAllText(lockPath, "1234@9999999999");
+
+            var act = () => new LockFile(lockPath);
+            act.Should().Throw<InvalidOperationException>()
+                .WithMessage("*1234@9999999999*");
+        }
+        finally
+        {
+            if (File.Exists(lockPath)) File.Delete(lockPath);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void LockFile_EmptyExistingFile_CreatesLock()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"ntix_lock_test_{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        var lockPath = Path.Combine(tempDir, "test.lock");
+
+        try
+        {
+            File.WriteAllText(lockPath, "");
+
+            using (var lockFile = new LockFile(lockPath))
+            {
+                File.Exists(lockPath).Should().BeTrue();
+            }
+
+            File.Exists(lockPath).Should().BeFalse();
+        }
+        finally
+        {
+            if (File.Exists(lockPath)) File.Delete(lockPath);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void LockFile_ShouldLockFalse_NoOp()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"ntix_lock_test_{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        var lockPath = Path.Combine(tempDir, "test.lock");
+
+        try
+        {
+            using var lockFile = new LockFile(lockPath, shouldLock: false);
+            File.Exists(lockPath).Should().BeFalse();
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void LockFile_DisposeIdempotent()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"ntix_lock_test_{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        var lockPath = Path.Combine(tempDir, "test.lock");
+
+        try
+        {
+            var lockFile = new LockFile(lockPath);
+            File.Exists(lockPath).Should().BeTrue();
+
+            var act = () =>
+            {
+                lockFile.Dispose();
+                lockFile.Dispose();
+            };
+            act.Should().NotThrow();
+            File.Exists(lockPath).Should().BeFalse();
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void LockFile_StaleLock_CreatedByProcess_CanBeOverwritten()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"ntix_lock_test_{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        var lockPath = Path.Combine(tempDir, "test.lock");
+
+        try
+        {
+            var lock1 = new LockFile(lockPath);
+            lock1.Dispose();
+
+            using var lock2 = new LockFile(lockPath);
+            File.Exists(lockPath).Should().BeTrue();
         }
         finally
         {

@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore -c Release
+
+      - name: Test with coverage
+        run: >
+          dotnet test --no-restore -c Release
+          /p:AltCover=true
+          /p:AltCoverCobertura=coverage.xml
+          /p:AltCoverAssemblyExcludeFilter="NTIX.Tests|xunit|testhost|AltCover|Moq|Microsoft|FluentAssertions"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: tests/NTIX.Tests/coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+      - name: Publish Native AOT
+        run: dotnet publish src/NTIX.Cli/NTIX.CLI.csproj -r win-x64 -c Release
+
+      - name: Upload AOT artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ntix-win-x64
+          path: src/NTIX.Cli/bin/Release/net10.0/win-x64/publish/
+          if-no-files-found: warn
