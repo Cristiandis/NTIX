@@ -6,6 +6,7 @@ namespace NTIX.Core.Config;
 
 public static class ConfigLoader
 {
+    private static readonly string[] PackageListKeys = { "winget", "chocolatey", "scoop" };
     public static NTIXConfig Load(string configPath)
     {
         if (!File.Exists(configPath))
@@ -18,19 +19,26 @@ public static class ConfigLoader
     public static NTIXConfig LoadFromString(string luaScript, string configPath)
     {
         using var state = LuaState.Create();
-
         state.OpenStandardLibraries();
 
-        var directory = Path.GetDirectoryName(configPath) ?? "";
-        if (!string.IsNullOrEmpty(directory))
+        var fullConfigPath = Path.GetFullPath(configPath);
+        var rootDir = Path.GetDirectoryName(fullConfigPath) ?? "";
+
+        if (!string.IsNullOrEmpty(rootDir))
         {
             var pkg = state.Environment["package"].Read<LuaTable>();
-            var path = pkg["path"].Read<string>();
-            var newPath = path + ";" + directory.Replace('\\', '/') + "/?.lua";
-            pkg["path"] = newPath;
+            pkg["path"] = pkg["path"].Read<string>() + ";" + rootDir.Replace('\\', '/') + "/?.lua";
         }
 
-        state.OpenStandardLibraries();
+        var globalOptions = new LuaTable();
+        var globalPkgs = new LuaTable();
+        foreach (var key in PackageListKeys)
+            globalPkgs[key] = new LuaTable();
+
+        state.Environment["options"] = globalOptions;
+        state.Environment["pkgs"] = globalPkgs;
+
+        RegisterImportFunction(state, fullConfigPath, globalOptions, globalPkgs);
 
         try
         {
@@ -50,149 +58,267 @@ public static class ConfigLoader
             throw;
         }
     }
+    private static void RegisterImportFunction(
+        LuaState state,
+        string rootConfigPath,
+        LuaTable globalOptions,
+        LuaTable globalPkgs)
+    {
+        var directoryStack = new Stack<string>();
+        directoryStack.Push(Path.GetDirectoryName(rootConfigPath) ?? "");
+
+        state.Environment["import"] = new LuaFunction((context, ct) =>
+        {
+            var arg = context.GetArgument<LuaValue>(0);
+            var paths = new List<string>();
+
+            switch (arg.Type)
+            {
+                case LuaValueType.String:
+                    paths.Add(arg.Read<string>());
+                    break;
+                case LuaValueType.Table:
+                    foreach (var kvp in arg.Read<LuaTable>())
+                    {
+                        if (kvp.Key.Type != LuaValueType.Number) continue;
+                        var p = kvp.Value.Read<string>();
+                        if (!string.IsNullOrWhiteSpace(p))
+                            paths.Add(p);
+                    }
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "import() expects a file path string or an array of file path strings");
+            }
+
+            var currentDir = directoryStack.Peek();
+
+            foreach (var relativePath in paths)
+            {
+                var importPath = Path.GetFullPath(Path.Combine(currentDir, relativePath));
+
+                if (!File.Exists(importPath))
+                    throw new FileNotFoundException($"Import file not found: {importPath} (referenced from config)");
+
+                // Let the imported file require() siblings from its own directory.
+                var importDir = Path.GetDirectoryName(importPath)?.Replace('\\', '/') ?? "";
+                var pkg = state.Environment["package"].Read<LuaTable>();
+                pkg["path"] = pkg["path"].Read<string>() + ";" + importDir + "/?.lua";
+
+                var script = File.ReadAllText(importPath);
+
+                directoryStack.Push(Path.GetDirectoryName(importPath) ?? "");
+                LuaValue[] importResults;
+                try
+                {
+                    // Nested import() calls made while this script runs merge
+                    // into globalOptions/globalPkgs as their own side effect.
+                    importResults = state.DoStringAsync(script).GetAwaiter().GetResult();
+                }
+                finally
+                {
+                    directoryStack.Pop();
+                }
+
+                if (importResults.Length > 0 && importResults[0].Type == LuaValueType.Table)
+                {
+                    MergeReturnedTable(globalOptions, globalPkgs, importResults[0].Read<LuaTable>());
+                }
+            }
+
+            return default;
+        });
+    }
+
+    private static void MergeReturnedTable(LuaTable globalOptions, LuaTable globalPkgs, LuaTable returned)
+    {
+        if (returned["options"].Type == LuaValueType.Table)
+            DeepMergeTable(globalOptions, returned["options"].Read<LuaTable>());
+
+        if (returned["pkgs"].Type == LuaValueType.Table)
+        {
+            var returnedPkgs = returned["pkgs"].Read<LuaTable>();
+            foreach (var key in PackageListKeys)
+            {
+                if (returnedPkgs[key].Type == LuaValueType.Table)
+                    MergePackagesDeduped(GetOrCreateSubTable(globalPkgs, key), returnedPkgs[key].Read<LuaTable>());
+            }
+        }
+    }
+
+    private static LuaTable GetOrCreateSubTable(LuaTable parent, string key)
+    {
+        if (parent[key].Type == LuaValueType.Table)
+            return parent[key].Read<LuaTable>();
+
+        var t = new LuaTable();
+        parent[key] = t;
+        return t;
+    }
+
+    /// <summary>
+    /// Recursively merges <paramref name="source"/> into <paramref name="target"/>.
+    /// Nested tables are merged key-by-key; scalars overwrite.
+    /// </summary>
+    private static void DeepMergeTable(LuaTable source, LuaTable target)
+    {
+        foreach (var kvp in source)
+        {
+            var key = kvp.Key;
+            var value = kvp.Value;
+
+            if (value.Type == LuaValueType.Table && target[key].Type == LuaValueType.Table)
+                DeepMergeTable(target[key].Read<LuaTable>(), value.Read<LuaTable>());
+            else
+                target[key] = value;
+        }
+    }
+
+    /// <summary>
+    /// Merges package arrays into target, deduplicating by id (later wins).
+    /// </summary>
+    private static void MergePackagesDeduped(LuaTable target, LuaTable source)
+    {
+        var idToIndex = new Dictionary<string, long>();
+        long nextIndex = 1;
+
+        foreach (var kvp in target)
+        {
+            if (kvp.Key.Type != LuaValueType.Number) continue;
+            var idx = (long)kvp.Key.Read<double>();
+            nextIndex = Math.Max(nextIndex, idx + 1);
+
+            var existingId = ExtractId(kvp.Value);
+            if (existingId != null)
+                idToIndex[existingId] = idx;
+        }
+
+        foreach (var kvp in source)
+        {
+            if (kvp.Key.Type != LuaValueType.Number) continue;
+
+            var id = ExtractId(kvp.Value);
+            if (id == null) continue;
+
+            if (idToIndex.TryGetValue(id, out var existingIndex))
+            {
+                target[existingIndex] = kvp.Value;
+            }
+            else
+            {
+                target[nextIndex] = kvp.Value;
+                idToIndex[id] = nextIndex;
+                nextIndex++;
+            }
+        }
+    }
+
+    private static string? ExtractId(LuaValue entry) => entry.Type switch
+    {
+        LuaValueType.String => entry.Read<string>(),
+        LuaValueType.Table when entry.Read<LuaTable>()["id"].Type == LuaValueType.String
+            => entry.Read<LuaTable>()["id"].Read<string>(),
+        _ => null
+    };
 
     private static NTIXConfig ParseConfig(LuaValue result, string configPath)
     {
         if (result.Type != LuaValueType.Table)
-            throw new InvalidOperationException($"Config must return a table, got {result.Type}");
+            throw new InvalidOperationException($"Config script must return a table (got {result.Type}): {configPath}");
 
         var table = result.Read<LuaTable>();
 
-        var optionsVal = table["options"];
-        if (optionsVal.Type == LuaValueType.Nil)
+        if (table["options"].Type != LuaValueType.Table)
             throw new InvalidOperationException("Config error: missing top-level 'options' table");
 
-        var optionsTable = optionsVal.Read<LuaTable>();
-
-        var wingetOptions = ParseWingetOptions(optionsTable);
-        var chocoOptions = ParseChocoOptions(optionsTable);
-        var scoopOptions = ParseScoopOptions(optionsTable);
-
-        var options = new NTIXOptions(wingetOptions, chocoOptions, scoopOptions);
-
-        var pkgsVal = table["pkgs"];
-        if (pkgsVal.Type == LuaValueType.Nil)
+        if (table["pkgs"].Type != LuaValueType.Table)
             throw new InvalidOperationException("Config error: missing top-level 'pkgs' table");
 
-        var pkgsTable = pkgsVal.Read<LuaTable>();
+        var options = ReadOptions(table["options"].Read<LuaTable>());
+        var pkgs = table["pkgs"].Read<LuaTable>();
 
-        var wingetPackages = ExtractPackages(pkgsTable["winget"], "pkgs.winget");
-        var chocoPackages = ExtractPackages(pkgsTable["chocolatey"], "pkgs.chocolatey");
-        var scoopPackages = ExtractPackages(pkgsTable["scoop"], "pkgs.scoop");
-
-        return new NTIXConfig(options, wingetPackages, chocoPackages, scoopPackages);
-    }
-
-    private static WingetOptions ParseWingetOptions(LuaTable optionsTable)
-    {
-        var wingetVal = optionsTable["winget"];
-        if (wingetVal.Type == LuaValueType.Nil)
-            return new WingetOptions();
-
-        var table = wingetVal.Read<LuaTable>();
-
-        return new WingetOptions(
-            Enable: table.ContainsKey("enable") && table["enable"].Type == LuaValueType.Boolean ? table["enable"].Read<bool>() : false,
-            AcceptAgreements: table.ContainsKey("acceptAgreements") && table["acceptAgreements"].Type == LuaValueType.Boolean ? table["acceptAgreements"].Read<bool>() : false,
-            Interactive: table.ContainsKey("interactive") && table["interactive"].Type == LuaValueType.Boolean ? table["interactive"].Read<bool>() : false
+        return new NTIXConfig(
+            Options: options,
+            WingetPackages: ReadPackageList(pkgs, "winget"),
+            ChocoPackages: ReadPackageList(pkgs, "chocolatey"),
+            ScoopPackages: ReadPackageList(pkgs, "scoop")
         );
     }
 
-    private static ChocoOptions ParseChocoOptions(LuaTable optionsTable)
+    private static NTIXOptions ReadOptions(LuaTable options)
     {
-        var chocoVal = optionsTable["chocolatey"];
-        if (chocoVal.Type == LuaValueType.Nil)
-            return new ChocoOptions();
-
-        var table = chocoVal.Read<LuaTable>();
-
-        static bool HasBool(LuaTable t, string key) => t.ContainsKey(key) && t[key].Type == LuaValueType.Boolean;
-
-        return new ChocoOptions(
-            Enable: table.ContainsKey("enable") && table["enable"].Type == LuaValueType.Boolean ? table["enable"].Read<bool>() : false,
-            Yes: table.ContainsKey("yes") && table["yes"].Type == LuaValueType.Boolean ? table["yes"].Read<bool>() : false
-        );
-    }
-
-    private static ScoopOptions ParseScoopOptions(LuaTable optionsTable)
-    {
-        var scoopVal = optionsTable["scoop"];
-        if (scoopVal.Type == LuaValueType.Nil)
-            return new ScoopOptions();
-
-        var table = scoopVal.Read<LuaTable>();
-        var buckets = new List<string> { "main", "extras", "versions" };
-        var bucketsVal = table["buckets"];
-        if (bucketsVal.Type == LuaValueType.Table)
+        var winget = new WingetOptions();
+        if (options["winget"].Type == LuaValueType.Table)
         {
-            var bucketsList = new List<string>();
-            foreach (var kvp in bucketsVal.Read<LuaTable>())
-            {
-                if (kvp.Value.Type == LuaValueType.String)
-                    buckets.Add(kvp.Value.Read<string>());
-            }
-        }
-
-        return new ScoopOptions(
-            Enable: table.ContainsKey("enable") && table["enable"].Type == LuaValueType.Boolean ? table["enable"].Read<bool>() : false,
-            Buckets: buckets
-        );
-    }
-
-    private static List<PackageEntry> ExtractPackages(LuaValue pkgsVal, string sourceName)
-    {
-        var result = new List<PackageEntry>();
-
-        if (pkgsVal.Type == LuaValueType.Nil || pkgsVal.Type != LuaValueType.Table)
-            return result;
-
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var kvp in pkgsVal.Read<LuaTable>())
-        {
-            if (kvp.Key.Type != LuaValueType.Number)
-                continue;
-
-            var entry = ParsePackageEntry(kvp.Value, sourceName);
-            if (entry == null)
-                continue;
-
-            if (seen.Contains(entry.Id))
-            {
-                Console.Error.WriteLine($"[warn] duplicate package '{entry.Id}' in {sourceName} - keeping first");
-                continue;
-            }
-
-            seen.Add(entry.Id);
-            result.Add(entry);
-        }
-
-        return result;
-    }
-
-    private static PackageEntry? ParsePackageEntry(LuaValue value, string sourceName)
-    {
-        if (value.Type == LuaValueType.String)
-        {
-            return new PackageEntry(value.Read<string>(), null);
-        }
-        else if (value.Type == LuaValueType.Table)
-        {
-            var table = value.Read<LuaTable>();
-            var idVal = table["id"];
-            var versionVal = table["version"];
-
-            if (idVal.Type != LuaValueType.String)
-            {
-                throw new InvalidOperationException($"Invalid package entry in {sourceName}: missing 'id'");
-            }
-
-            return new PackageEntry(
-                idVal.Read<string>(),
-                versionVal.Type == LuaValueType.String ? versionVal.Read<string>() : null
+            var t = options["winget"].Read<LuaTable>();
+            winget = new WingetOptions(
+                Enable: ReadBool(t["enable"], winget.Enable),
+                AcceptAgreements: ReadBool(t["acceptAgreements"], winget.AcceptAgreements),
+                Interactive: ReadBool(t["interactive"], winget.Interactive)
             );
         }
 
-        throw new InvalidOperationException($"Invalid package entry type in {sourceName}");
+        var choco = new ChocoOptions();
+        if (options["chocolatey"].Type == LuaValueType.Table)
+        {
+            var t = options["chocolatey"].Read<LuaTable>();
+            choco = new ChocoOptions(
+                Enable: ReadBool(t["enable"], choco.Enable),
+                Yes: ReadBool(t["yes"], choco.Yes)
+            );
+        }
+
+        var scoop = new ScoopOptions();
+        if (options["scoop"].Type == LuaValueType.Table)
+        {
+            var t = options["scoop"].Read<LuaTable>();
+            var buckets = scoop.Buckets;
+            if (t["buckets"].Type == LuaValueType.Table)
+            {
+                buckets = t["buckets"].Read<LuaTable>()
+                    .Where(kvp => kvp.Key.Type == LuaValueType.Number)
+                    .Select(kvp => kvp.Value.Read<string>())
+                    .ToList();
+            }
+            scoop = new ScoopOptions(
+                Enable: ReadBool(t["enable"], scoop.Enable),
+                Buckets: buckets
+            );
+        }
+
+        return new NTIXOptions(winget, choco, scoop);
+    }
+
+    private static bool ReadBool(LuaValue value, bool fallback) =>
+        value.Type == LuaValueType.Boolean ? value.Read<bool>() : fallback;
+
+    private static List<PackageEntry> ReadPackageList(LuaTable pkgs, string key)
+    {
+        var list = new List<PackageEntry>();
+        if (pkgs[key].Type != LuaValueType.Table)
+            return list;
+
+        foreach (var kvp in pkgs[key].Read<LuaTable>())
+        {
+            if (kvp.Key.Type != LuaValueType.Number) continue;
+
+            switch (kvp.Value.Type)
+            {
+                case LuaValueType.String:
+                    list.Add(new PackageEntry(kvp.Value.Read<string>()));
+                    break;
+                case LuaValueType.Table:
+                    var entry = kvp.Value.Read<LuaTable>();
+                    if (entry["id"].Type != LuaValueType.String)
+                        continue;
+                    var version = entry["version"].Type == LuaValueType.String
+                        ? entry["version"].Read<string>()
+                        : null;
+                    list.Add(new PackageEntry(entry["id"].Read<string>(), version));
+                    break;
+            }
+        }
+
+        return list;
     }
 }
