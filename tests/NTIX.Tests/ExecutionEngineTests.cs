@@ -144,7 +144,7 @@ public class ExecutionEngineTests
         var options = new NTIXOptions(
             new WingetOptions(Enable: true, AcceptAgreements: true, Interactive: false),
             new ChocoOptions(Enable: true, Yes: true),
-            new ScoopOptions(Enable: true, Buckets: new List<string> { "main" }));
+            new ScoopOptions(Enable: true, Buckets: new List<ScoopBucket> { new("main") }));
         var state = new State
         {
             Winget = new Dictionary<string, string> { { "winget-upgrade", "1.0" }, { "winget-remove", "1.0" } },

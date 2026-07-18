@@ -11,12 +11,17 @@ public record ChocoOptions(
     bool Yes = false
 );
 
+public record ScoopBucket(string Name, string? Url = null);
+
 public record ScoopOptions(
     bool Enable = false,
-    List<string> Buckets = default!
+    List<ScoopBucket> Buckets = default!
 )
 {
-    public List<string> Buckets { get; init; } = Buckets ?? new() { "main", "extras", "versions" };
+    public List<ScoopBucket> Buckets { get; init; } = Buckets ?? new()
+    {
+        new("main"), new("extras"), new("versions")
+    };
 };
 
 public record NTIXOptions(

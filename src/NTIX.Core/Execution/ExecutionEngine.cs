@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using NTIX.Core.Models;
 using NTIX.Core.PackageManager;
@@ -35,6 +36,13 @@ public static class ExecutionEngine
         var allOk = true;
         var manager = wingetManager ?? new WingetManager();
 
+        if (options.Scoop.Enable && diff.ToInstall.Any(p => p.Source == "scoop"))
+        {
+            var ensured = await EnsureScoopBucketsAsync(options.Scoop.Buckets);
+            if (!ensured)
+                allOk = false;
+        }
+
         foreach (var pkg in diff.ToInstall)
         {
             if (!IsEnabled(pkg.Source, options)) continue;
@@ -45,7 +53,7 @@ public static class ExecutionEngine
             {
                 "winget" => await manager.InstallAsync(pkg.Id, pkg.Version, options.Winget.AcceptAgreements, !options.Winget.Interactive),
                 "chocolatey" => await RunCommandAsync(CommandBuilder.BuildChocoInstall(pkg.Id, pkg.Version, options.Chocolatey.Yes)) == 0,
-                "scoop" => await RunCommandAsync(CommandBuilder.BuildScoopInstall(pkg.Id, pkg.Version, options.Scoop.Buckets)) == 0,
+                "scoop" => await RunCommandAsync(CommandBuilder.BuildScoopInstall(pkg.Id, pkg.Version)) == 0,
                 _ => throw new InvalidOperationException($"Unknown source: {pkg.Source}")
             };
 
@@ -119,6 +127,57 @@ public static class ExecutionEngine
         return allOk;
     }
 
+    internal static async Task<bool> EnsureScoopBucketsAsync(List<ScoopBucket> configuredBuckets)
+    {
+        var output = await RunCommandOutputAsync(CommandBuilder.BuildScoopBucketList());
+        var addedBuckets = ParseScoopBucketList(output);
+
+        var allOk = true;
+        foreach (var bucket in configuredBuckets)
+        {
+            if (addedBuckets.Contains(bucket.Name, StringComparer.OrdinalIgnoreCase))
+                continue;
+
+            Console.WriteLine($"Adding scoop bucket: {bucket.Name}...");
+            var exitCode = await RunCommandAsync(CommandBuilder.BuildScoopBucketAdd(bucket.Name, bucket.Url));
+            if (exitCode != 0)
+            {
+                ConsoleHelper.WriteWarning($"Failed to add scoop bucket: {bucket.Name}");
+                allOk = false;
+                continue;
+            }
+
+            var reCheck = await RunCommandOutputAsync(CommandBuilder.BuildScoopBucketList());
+            var reAdded = ParseScoopBucketList(reCheck);
+            if (!reAdded.Contains(bucket.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                ConsoleHelper.WriteWarning($"Scoop bucket was not added: {bucket.Name}");
+                allOk = false;
+            }
+        }
+
+        return allOk;
+    }
+
+    internal static HashSet<string> ParseScoopBucketList(string output)
+    {
+        var buckets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(output)) return buckets;
+
+        foreach (var line in output.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith('-'))
+                continue;
+
+            var match = Regex.Match(trimmed, @"^(\S+)");
+            if (match.Success)
+                buckets.Add(match.Groups[1].Value);
+        }
+
+        return buckets;
+    }
+
     private static bool IsEnabled(string source, NTIXOptions options) => source switch
     {
         "winget" => options.Winget.Enable,
@@ -143,7 +202,7 @@ public static class ExecutionEngine
             dict.Remove(pkg.Id);
     }
 
-    private static async Task<int> RunCommandAsync(string command)
+    internal static async Task<int> RunCommandAsync(string command)
     {
         var psi = new ProcessStartInfo
         {
@@ -168,5 +227,28 @@ public static class ExecutionEngine
         await process.WaitForExitAsync();
 
         return process.ExitCode;
+    }
+
+    internal static async Task<string> RunCommandOutputAsync(string command)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = $"/c {command}",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = System.Text.Encoding.UTF8,
+            StandardErrorEncoding = System.Text.Encoding.UTF8
+        };
+
+        using var process = Process.Start(psi);
+        if (process == null) return string.Empty;
+
+        var stdout = await process.StandardOutput.ReadToEndAsync();
+        await process.WaitForExitAsync();
+
+        return stdout;
     }
 }

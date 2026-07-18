@@ -304,7 +304,23 @@ public static class ConfigLoader
             {
                 buckets = t["buckets"].Read<LuaTable>()
                     .Where(kvp => kvp.Key.Type == LuaValueType.Number)
-                    .Select(kvp => kvp.Value.Read<string>())
+                    .Select(kvp =>
+                    {
+                        if (kvp.Value.Type == LuaValueType.String)
+                            return new ScoopBucket(kvp.Value.Read<string>());
+
+                        if (kvp.Value.Type == LuaValueType.Table)
+                        {
+                            var bt = kvp.Value.Read<LuaTable>();
+                            var name = bt["name"].Read<string>();
+                            var url = bt["url"].Type != LuaValueType.Nil
+                                ? bt["url"].Read<string>()
+                                : null;
+                            return new ScoopBucket(name, url);
+                        }
+
+                        return new ScoopBucket(kvp.Value.Read<string>());
+                    })
                     .ToList();
             }
             scoop = new ScoopOptions(

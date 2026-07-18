@@ -1,3 +1,5 @@
+using NTIX.Core.Models;
+
 namespace NTIX.Core.PackageManager;
 
 public static class CommandBuilder
@@ -12,16 +14,11 @@ public static class CommandBuilder
         return cmd;
     }
 
-    public static string BuildScoopInstall(string id, string? version, List<string> buckets)
+    public static string BuildScoopInstall(string id, string? version)
     {
-        var cmd = string.IsNullOrEmpty(version)
+        return string.IsNullOrEmpty(version)
             ? $"scoop install {id}"
             : $"scoop install {id}@{version}";
-        foreach (var bucket in buckets)
-        {
-            cmd += $" --bucket {bucket}";
-        }
-        return cmd;
     }
 
     public static string BuildChocoUpgrade(string id, bool yes)
@@ -52,5 +49,17 @@ public static class CommandBuilder
     public static string BuildScoopInfo(string id)
     {
         return $"scoop info {id}";
+    }
+
+    public static string BuildScoopBucketAdd(string name, string? url)
+    {
+        return string.IsNullOrEmpty(url)
+            ? $"scoop bucket add {name}"
+            : $"scoop bucket add {name} {url}";
+    }
+
+    public static string BuildScoopBucketList()
+    {
+        return "scoop bucket list";
     }
 }

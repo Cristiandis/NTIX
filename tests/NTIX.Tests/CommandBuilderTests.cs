@@ -22,25 +22,38 @@ public class CommandBuilderTests
     }
 
     [Fact]
-    public void BuildScoopInstall_WithBuckets()
-    {
-        var cmd = CommandBuilder.BuildScoopInstall("test", null, new List<string> { "main", "extras" });
-        cmd.Should().Contain("--bucket main");
-        cmd.Should().Contain("--bucket extras");
-    }
-
-    [Fact]
     public void BuildScoopInstall_WithVersion_UsesAtSyntax()
     {
-        var cmd = CommandBuilder.BuildScoopInstall("nodejs", "16.14.2", new List<string>());
+        var cmd = CommandBuilder.BuildScoopInstall("nodejs", "16.14.2");
         cmd.Should().Be("scoop install nodejs@16.14.2");
     }
 
     [Fact]
     public void BuildScoopInstall_WithoutVersion_NoAt()
     {
-        var cmd = CommandBuilder.BuildScoopInstall("nodejs", null, new List<string>());
+        var cmd = CommandBuilder.BuildScoopInstall("nodejs", null);
         cmd.Should().Be("scoop install nodejs");
+    }
+
+    [Fact]
+    public void BuildScoopBucketAdd_WithNameOnly()
+    {
+        var cmd = CommandBuilder.BuildScoopBucketAdd("main", null);
+        cmd.Should().Be("scoop bucket add main");
+    }
+
+    [Fact]
+    public void BuildScoopBucketAdd_WithUrl()
+    {
+        var cmd = CommandBuilder.BuildScoopBucketAdd("ntix", "https://github.com/Cristiandis/scoop-ntix");
+        cmd.Should().Be("scoop bucket add ntix https://github.com/Cristiandis/scoop-ntix");
+    }
+
+    [Fact]
+    public void BuildScoopBucketList_ReturnsCommand()
+    {
+        var cmd = CommandBuilder.BuildScoopBucketList();
+        cmd.Should().Be("scoop bucket list");
     }
 
     [Fact]

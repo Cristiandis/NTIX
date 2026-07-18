@@ -357,8 +357,8 @@ public class ConfigLoaderTests
             config.Options.Winget.Interactive.Should().BeTrue();
 
             config.Options.Scoop.Enable.Should().BeTrue();
-            config.Options.Scoop.Buckets.Should().Contain("main");
-            config.Options.Scoop.Buckets.Should().Contain("extras");
+            config.Options.Scoop.Buckets.Should().Contain(b => b.Name == "main");
+            config.Options.Scoop.Buckets.Should().Contain(b => b.Name == "extras");
         }
         finally
         {

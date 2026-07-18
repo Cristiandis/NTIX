@@ -72,6 +72,9 @@ public class ModelTests
     public void ScoopOptions_DefaultBuckets()
     {
         var scoop = new ScoopOptions();
-        scoop.Buckets.Should().BeEquivalentTo(new[] { "main", "extras", "versions" });
+        scoop.Buckets.Should().HaveCount(3);
+        scoop.Buckets[0].Name.Should().Be("main");
+        scoop.Buckets[1].Name.Should().Be("extras");
+        scoop.Buckets[2].Name.Should().Be("versions");
     }
 }
