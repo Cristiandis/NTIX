@@ -6,8 +6,8 @@ namespace NTIX.Core.Diff;
 public static class DiffEngine
 {
     public static DiffResult ComputeDiff(
-        NTIXConfig config, 
-        State state, 
+        NTIXConfig config,
+        State state,
         InstalledPackages? installed = null,
         IWingetManager? wingetManager = null,
         bool validatePackages = true)
@@ -26,7 +26,7 @@ public static class DiffEngine
         }
 
         foreach (var w in warnings)
-            Console.Error.WriteLine($"[warn] {w}");
+            ConsoleHelper.WriteWarning(w);
 
         var result = new DiffResult();
         var installedPkgs = installed ?? PackageManagerDetector.GetInstalledPackages();
@@ -43,14 +43,14 @@ public static class DiffEngine
         var chocoEnabled = config.Options?.Chocolatey?.Enable ?? false;
         var scoopEnabled = config.Options?.Scoop?.Enable ?? false;
 
-        var wingetUpgradable = (hasWingetUnpinned && wingetEnabled) 
-            ? PackageManagerDetector.GetWingetUpgradablePackages(() => wingetManager ?? new WingetManager()) 
+        var wingetUpgradable = (hasWingetUnpinned && wingetEnabled)
+            ? PackageManagerDetector.GetWingetUpgradablePackages(() => wingetManager ?? new WingetManager())
             : new Dictionary<string, UpgradeInfo>();
-        var chocoUpgradable = (hasChocoUnpinned && chocoEnabled) 
-            ? PackageManagerDetector.GetChocoUpgradablePackages() 
+        var chocoUpgradable = (hasChocoUnpinned && chocoEnabled)
+            ? PackageManagerDetector.GetChocoUpgradablePackages()
             : new Dictionary<string, UpgradeInfo>();
-        var scoopUpgradable = (hasScoopUnpinned && scoopEnabled) 
-            ? PackageManagerDetector.GetScoopUpgradablePackages() 
+        var scoopUpgradable = (hasScoopUnpinned && scoopEnabled)
+            ? PackageManagerDetector.GetScoopUpgradablePackages()
             : new Dictionary<string, UpgradeInfo>();
 
         ClassifyPackages(result, config.WingetPackages, "winget", wingetEnabled, wingetInstalled, state.Winget, wingetUpgradable);
@@ -71,38 +71,38 @@ public static class DiffEngine
     {
         if (!string.IsNullOrEmpty(diff.Error))
         {
-            Console.Error.WriteLine($"[error] {diff.Error}");
+            ConsoleHelper.WriteError(diff.Error);
             foreach (var w in diff.Warnings)
-                Console.Error.WriteLine($"[warn] {w}");
+                ConsoleHelper.WriteWarning(w);
             return;
         }
 
         if (diff.ToInstall.Count > 0)
         {
-            Console.WriteLine("To install:");
+            ConsoleHelper.WriteSectionHeader("To install:", ConsoleColor.Green);
             foreach (var p in diff.ToInstall)
-                Console.WriteLine($"  {p.Source}: {p.Id} ({p.Version ?? "latest"})");
+                ConsoleHelper.WritePackageLine(p.Source, p.Id, p.Version ?? "latest");
         }
 
         if (diff.ToUpgrade.Count > 0)
         {
-            Console.WriteLine("To upgrade:");
+            ConsoleHelper.WriteSectionHeader("To upgrade:", ConsoleColor.DarkYellow);
             foreach (var p in diff.ToUpgrade)
-                Console.WriteLine($"  {p.Source}: {p.Id} ({p.Version ?? "latest"})");
+                ConsoleHelper.WritePackageLine(p.Source, p.Id, p.Version ?? "latest");
         }
 
         if (diff.ToSkip.Count > 0)
         {
             Console.WriteLine("Already installed (skip):");
             foreach (var p in diff.ToSkip)
-                Console.WriteLine($"  {p.Source}: {p.Id} ({p.Version ?? "latest"})");
+                ConsoleHelper.WritePackageLine(p.Source, p.Id, p.Version ?? "latest");
         }
 
         if (diff.ToRemove.Count > 0)
         {
-            Console.WriteLine("To remove:");
+            ConsoleHelper.WriteSectionHeader("To remove:", ConsoleColor.DarkRed);
             foreach (var p in diff.ToRemove)
-                Console.WriteLine($"  {p.Source}: {p.Id} ({p.Version ?? "latest"})");
+                ConsoleHelper.WritePackageLine(p.Source, p.Id, p.Version ?? "latest");
         }
 
         if (diff.IsEmpty)
@@ -111,7 +111,7 @@ public static class DiffEngine
         }
 
         foreach (var w in diff.Warnings)
-            Console.Error.WriteLine($"[warn] {w}");
+            ConsoleHelper.WriteWarning(w);
     }
 
     private static void ClassifyPackages(

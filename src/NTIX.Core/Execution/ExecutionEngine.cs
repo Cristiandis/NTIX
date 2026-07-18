@@ -12,9 +12,9 @@ public static class ExecutionEngine
     {
         if (!string.IsNullOrEmpty(diff.Error))
         {
-            Console.Error.WriteLine($"[error] {diff.Error}");
+            ConsoleHelper.WriteError(diff.Error);
             foreach (var w in diff.Warnings)
-                Console.Error.WriteLine($"[warn] {w}");
+                ConsoleHelper.WriteWarning(w);
             return false;
         }
 
@@ -23,13 +23,13 @@ public static class ExecutionEngine
             var (valid, error, warnings) = PackageManagerDetector.ValidateManagers(options, config);
             if (!valid)
             {
-                Console.Error.WriteLine($"[error] {error}");
+                ConsoleHelper.WriteError(error ?? "Unknown error");
                 foreach (var w in warnings)
-                    Console.Error.WriteLine($"[warn] {w}");
+                    ConsoleHelper.WriteWarning(w);
                 return false;
             }
             foreach (var w in warnings)
-                Console.Error.WriteLine($"[warn] {w}");
+                ConsoleHelper.WriteWarning(w);
         }
 
         var allOk = true;
@@ -56,7 +56,7 @@ public static class ExecutionEngine
             }
             else
             {
-                Console.Error.WriteLine($"Failed to install {pkg.Source}:{pkg.Id}");
+                ConsoleHelper.WriteError($"Failed to install {pkg.Source}:{pkg.Id}");
                 allOk = false;
                 if (stopOnFailure) return false;
             }
@@ -83,7 +83,7 @@ public static class ExecutionEngine
             }
             else
             {
-                Console.Error.WriteLine($"Failed to upgrade {pkg.Source}:{pkg.Id}");
+                ConsoleHelper.WriteError($"Failed to upgrade {pkg.Source}:{pkg.Id}");
                 allOk = false;
                 if (stopOnFailure) return false;
             }
@@ -110,7 +110,7 @@ public static class ExecutionEngine
             }
             else
             {
-                Console.Error.WriteLine($"Failed to remove {pkg.Source}:{pkg.Id}");
+                ConsoleHelper.WriteError($"Failed to remove {pkg.Source}:{pkg.Id}");
                 allOk = false;
                 if (stopOnFailure) return false;
             }
