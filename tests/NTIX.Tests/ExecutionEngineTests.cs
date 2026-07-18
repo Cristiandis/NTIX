@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
@@ -7,6 +8,7 @@ using Moq;
 using NTIX.Core.Models;
 using NTIX.Core.PackageManager;
 using NTIX.Core.Execution;
+using NTIX.Core.StateManagement;
 
 namespace NTIX.Tests;
 
@@ -18,8 +20,10 @@ public class ExecutionEngineTests
         var diff = new DiffResult();
         var options = new NTIXOptions(new WingetOptions(), new ChocoOptions(), new ScoopOptions());
         var state = new State();
+        var tempPath = Path.GetTempFileName();
+        File.Delete(tempPath); // just get a valid path
         
-        var result = ExecutionEngine.ApplyDiff(diff, options, state);
+        var result = ExecutionEngine.ApplyDiff(diff, options, state, tempPath);
         result.Should().BeTrue();
     }
 
@@ -29,8 +33,10 @@ public class ExecutionEngineTests
         var diff = new DiffResult();
         var options = new NTIXOptions(new WingetOptions(), new ChocoOptions(), new ScoopOptions());
         var state = new State();
+        var tempPath = Path.GetTempFileName();
+        File.Delete(tempPath);
         
-        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state);
+        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath);
         result.Should().BeTrue();
     }
 
@@ -48,8 +54,10 @@ public class ExecutionEngineTests
             new ChocoOptions(),
             new ScoopOptions());
         var state = new State();
+        var tempPath = Path.GetTempFileName();
+        File.Delete(tempPath);
 
-        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, mockWinget.Object);
+        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
         
         result.Should().BeTrue();
         state.Winget.Should().ContainKey("test-pkg").WhoseValue.Should().Be("1.0");
@@ -70,8 +78,10 @@ public class ExecutionEngineTests
             new ChocoOptions(),
             new ScoopOptions());
         var state = new State { Winget = new Dictionary<string, string> { { "test-pkg", "1.0" } } };
+        var tempPath = Path.GetTempFileName();
+        File.Delete(tempPath);
 
-        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, mockWinget.Object);
+        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
         
         result.Should().BeTrue();
         state.Winget["test-pkg"].Should().Be("2.0");
@@ -92,8 +102,10 @@ public class ExecutionEngineTests
             new ChocoOptions(),
             new ScoopOptions());
         var state = new State { Winget = new Dictionary<string, string> { { "test-pkg", "1.0" } } };
+        var tempPath = Path.GetTempFileName();
+        File.Delete(tempPath);
 
-        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, mockWinget.Object);
+        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
         
         result.Should().BeTrue();
         state.Winget.Should().NotContainKey("test-pkg");
@@ -125,8 +137,10 @@ public class ExecutionEngineTests
             Chocolatey = new Dictionary<string, string> { { "choco-pkg", "1.0" } },
             Scoop = new Dictionary<string, string> { { "scoop-pkg", "1.0" } }
         };
+        var tempPath = Path.GetTempFileName();
+        File.Delete(tempPath);
 
-        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, mockWinget.Object);
+        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
         
         result.Should().BeTrue();
         state.Winget.Should().ContainKey("winget-pkg").WhoseValue.Should().Be("1.0");
@@ -148,8 +162,10 @@ public class ExecutionEngineTests
             new ChocoOptions(),
             new ScoopOptions());
         var state = new State();
+        var tempPath = Path.GetTempFileName();
+        File.Delete(tempPath);
 
-        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, mockWinget.Object);
+        var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
         
         result.Should().BeFalse();
         state.Winget.Should().NotContainKey("fail-pkg");

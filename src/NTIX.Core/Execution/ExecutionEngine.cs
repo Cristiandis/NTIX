@@ -2,12 +2,13 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using NTIX.Core.Models;
 using NTIX.Core.PackageManager;
+using NTIX.Core.StateManagement;
 
 namespace NTIX.Core.Execution;
 
 public static class ExecutionEngine
 {
-    public static async Task<bool> ApplyDiffAsync(DiffResult diff, NTIXOptions options, State state, IWingetManager? wingetManager = null, NTIXConfig? config = null)
+    public static async Task<bool> ApplyDiffAsync(DiffResult diff, NTIXOptions options, State state, string statePath, bool stopOnFailure = true, IWingetManager? wingetManager = null, NTIXConfig? config = null)
     {
         if (!string.IsNullOrEmpty(diff.Error))
         {
@@ -48,14 +49,16 @@ public static class ExecutionEngine
                 _ => throw new InvalidOperationException($"Unknown source: {pkg.Source}")
             };
 
-            if (success)
+if (success)
             {
                 UpdateState(state, pkg, true);
+                StateService.SaveState(state, statePath);
             }
             else
             {
                 Console.Error.WriteLine($"Failed to install {pkg.Source}:{pkg.Id}");
                 allOk = false;
+                if (stopOnFailure) return false;
             }
         }
 
@@ -76,11 +79,13 @@ public static class ExecutionEngine
             if (success)
             {
                 UpdateState(state, pkg, true);
+                StateService.SaveState(state, statePath);
             }
             else
             {
                 Console.Error.WriteLine($"Failed to upgrade {pkg.Source}:{pkg.Id}");
                 allOk = false;
+                if (stopOnFailure) return false;
             }
         }
 
@@ -101,19 +106,21 @@ public static class ExecutionEngine
             if (success)
             {
                 UpdateState(state, pkg, false);
+                StateService.SaveState(state, statePath);
             }
             else
             {
                 Console.Error.WriteLine($"Failed to remove {pkg.Source}:{pkg.Id}");
                 allOk = false;
+                if (stopOnFailure) return false;
             }
         }
 
         return allOk;
     }
 
-    public static bool ApplyDiff(DiffResult diff, NTIXOptions options, State state)
-        => ApplyDiffAsync(diff, options, state).GetAwaiter().GetResult();
+    public static bool ApplyDiff(DiffResult diff, NTIXOptions options, State state, string statePath, bool stopOnFailure = true)
+        => ApplyDiffAsync(diff, options, state, statePath, stopOnFailure).GetAwaiter().GetResult();
 
     private static bool IsEnabled(string source, NTIXOptions options) => source switch
     {

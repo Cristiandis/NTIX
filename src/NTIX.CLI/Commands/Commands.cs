@@ -23,6 +23,9 @@ public partial class ApplyCommand : ICommand
     [CommandOption("no-gc", Description = "Don't remove packages not in config")]
     public bool NoGc { get; set; }
 
+    [CommandOption("stop-on-failure", Description = "Stop on first package failure instead of continuing")]
+    public bool StopOnFailure { get; set; }
+
     public async ValueTask ExecuteAsync(IConsole console)
     {
         if (!ProcessHelper.IsRunningAsAdmin())
@@ -52,11 +55,11 @@ public partial class ApplyCommand : ICommand
             return;
 
         using var lockFile = new LockFile();
-        var success = await ExecutionEngine.ApplyDiffAsync(diff, config.Options, state);
+        var statePath = StateService.GetStatePath();
+        var success = await ExecutionEngine.ApplyDiffAsync(diff, config.Options, state, statePath, stopOnFailure: StopOnFailure);
         
         if (success)
         {
-            StateService.SaveState(state);
             AnsiConsole.MarkupLine("\n[green]Done.[/]");
         }
         else

@@ -37,7 +37,13 @@ public static class StateService
     public static State? LoadState(string? path = null)
     {
         var statePath = string.IsNullOrEmpty(path) ? GetStatePath() : path;
-        
+
+        var tempPath = statePath + ".tmp";
+        if (File.Exists(tempPath))
+        {
+            try { File.Delete(tempPath); } catch { }
+        }
+
         if (!File.Exists(statePath))
             return null;
 
@@ -52,20 +58,84 @@ public static class StateService
         }
     }
 
-    public static bool SaveState(State state, string? path = null)
+    public static bool SaveState(State state, string? path = null, int maxRetries = 3)
     {
         var statePath = string.IsNullOrEmpty(path) ? GetStatePath() : path;
-        
+        var tempPath = statePath + ".tmp";
+
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(statePath)!);
-            var json = JsonSerializer.Serialize(state, JsonOptions);
-            File.WriteAllText(statePath, json);
-            return true;
         }
         catch
         {
             return false;
         }
+
+        var json = JsonSerializer.Serialize(state, JsonOptions);
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                File.WriteAllText(tempPath, json);
+                File.Move(tempPath, statePath, overwrite: true);
+                return true;
+            }
+            catch (IOException) when (attempt < maxRetries)
+            {
+                Thread.Sleep(50 * attempt);
+            }
+            finally
+            {
+                if (File.Exists(tempPath))
+                {
+                    try { File.Delete(tempPath); } catch { }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public static async Task<bool> SaveStateAsync(State state, string? path = null, int maxRetries = 3, CancellationToken ct = default)
+    {
+        var statePath = string.IsNullOrEmpty(path) ? GetStatePath() : path;
+        var tempPath = statePath + ".tmp";
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(statePath)!);
+        }
+        catch
+        {
+            return false;
+        }
+
+        var json = JsonSerializer.Serialize(state, JsonOptions);
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                await File.WriteAllTextAsync(tempPath, json, ct);
+                File.Move(tempPath, statePath, overwrite: true);
+                return true;
+            }
+            catch (IOException) when (attempt < maxRetries)
+            {
+                await Task.Delay(50 * attempt, ct);
+            }
+            finally
+            {
+                if (File.Exists(tempPath))
+                {
+                    try { File.Delete(tempPath); } catch { }
+                }
+            }
+        }
+
+        return false;
     }
 }
