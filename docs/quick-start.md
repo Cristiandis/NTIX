@@ -15,7 +15,7 @@ scoop install ntix
 ```
 
 ```powershell
-# PowerShell one-liner (runs the installer silently)
+# PowerShell script
 iwr -useb https://raw.githubusercontent.com/Cristiandis/NTIX/master/install.ps1 | iex
 ```
 
