@@ -7,8 +7,10 @@ Install, upgrade, and remove packages to match your config.
 ### Usage
 
 ```bash
-ntix apply <config-path> [options]
+ntix apply [config-path] [options]
 ```
+
+If no path is provided, NTIX uses `~/ntix/config.lua` (creating it on first run).
 
 > Requires **administrator privileges**.
 

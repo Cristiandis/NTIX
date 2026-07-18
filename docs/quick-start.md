@@ -18,9 +18,16 @@ The published binary will be in `src/NTIX.Cli/bin/Release/net10.0/win-x64/publis
 {% endstep %}
 
 {% step %}
-### Create a config file
+### Set up your config
 
-Create a file called `config.lua`:
+Just run `ntix diff` — NTIX will create a default config at `~/ntix/config.lua`:
+
+```
+Created default config at C:\Users\you\ntix\config.lua
+Edit it to add your packages, then run ntix diff again.
+```
+
+Edit the file to add your packages:
 
 ```lua
 local options = {
@@ -46,7 +53,7 @@ Only enable the package managers you have installed.
 Run `ntix diff` to see what would change without installing anything:
 
 ```bash
-ntix diff config.lua
+ntix diff
 ```
 
 You'll see output like:
@@ -59,6 +66,8 @@ To install:
   scoop: fd (latest)
   scoop: bat (latest)
 ```
+
+You can also pass a custom config path: `ntix diff ./my-config.lua`
 {% endstep %}
 
 {% step %}
@@ -67,7 +76,7 @@ To install:
 Run `ntix apply` with administrator privileges to install the packages:
 
 ```bash
-ntix apply config.lua
+ntix apply
 ```
 
 {% hint style="warning" %}

@@ -7,8 +7,10 @@ Show what would change without modifying anything.
 ### Usage
 
 ```bash
-ntix diff <config-path>
+ntix diff [config-path]
 ```
+
+If no path is provided, NTIX uses `~/ntix/config.lua` (creating it on first run).
 
 ### Output
 
