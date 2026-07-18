@@ -1,4 +1,4 @@
-import({ "../../environments/work/base.lua", "../../packages/scoop.lua" })
+import({ "./base.lua", "../../packages/scoop.lua" })
 
 return {
     pkgs = {
