@@ -11,7 +11,7 @@
 ### Build
 
 ```bash
-git clone https://github.com/cristianizzo/NTIX.git
+git clone https://github.com/Cristiandis/NTIX.git
 cd NTIX
 dotnet build
 ```
@@ -28,7 +28,7 @@ dotnet run --project src/NTIX.Cli -- diff examples/simple/config.lua
 dotnet test
 ```
 
-The test suite has 105 tests covering config loading, diff computation, execution, state management, locking, and command building.
+The test suite has 136 tests covering config loading, diff computation, execution, state management, locking, and command building.
 
 ### Project structure
 
@@ -60,6 +60,6 @@ GitHub Actions runs on every push:
 
 ### License
 
-GPLv3. See [LICENSE](https://github.com/cristianizzo/NTIX/blob/master/LICENSE).
+GPLv3. See [LICENSE](https://github.com/Cristiandis/NTIX/blob/master/LICENSE).
 
-Branding assets are CC BY 4.0. See [branding/LICENSE](https://github.com/cristianizzo/NTIX/blob/master/branding/LICENSE).
+Branding assets are CC BY 4.0. See [branding/LICENSE](https://github.com/Cristiandis/NTIX/blob/master/branding/LICENSE).

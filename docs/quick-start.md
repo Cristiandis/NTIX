@@ -6,10 +6,17 @@
 {% step %}
 ### Install NTIX
 
-Download the latest release from [GitHub Releases](https://github.com/cristianizzo/NTIX/releases), or build from source:
+Download the latest release from [GitHub Releases](https://github.com/Cristiandis/NTIX/releases), install via Scoop, or build from source:
 
 ```bash
-git clone https://github.com/cristianizzo/NTIX.git
+# Scoop (recommended)
+scoop bucket add ntix https://github.com/Cristiandis/scoop-ntix
+scoop install ntix
+```
+
+```bash
+# Build from source
+git clone https://github.com/Cristiandis/NTIX.git
 cd NTIX
 dotnet publish src/NTIX.Cli -c Release -r win-x64
 ```
