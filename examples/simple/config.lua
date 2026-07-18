@@ -9,7 +9,7 @@ local options = {
 	},
 	scoop = {
 		enable = true,
-		buckets = {"main", "extras", "versions"}
+		buckets = { "main", "extras", "versions" }
 	}
 }
 
@@ -22,10 +22,6 @@ pkgs.winget = {
 	{
 		id = "7zip.7zip",
 		version = "23.01"
-	},
-	{
-		id = "Google.Chrome",
-		version = "999"
 	}
 }
 
