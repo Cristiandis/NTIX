@@ -8,6 +8,7 @@ using NTIX.Core.Execution;
 using NTIX.Core.Lock;
 using NTIX.Core;
 using Spectre.Console;
+using System.Runtime.Versioning;
 
 namespace NTIX.CLI.Commands;
 
@@ -26,6 +27,7 @@ public partial class ApplyCommand : ICommand
     [CommandOption("stop-on-failure", Description = "Stop on first package failure instead of continuing")]
     public bool StopOnFailure { get; set; }
 
+    [SupportedOSPlatform("windows")]
     public async ValueTask ExecuteAsync(IConsole console)
     {
         if (!ProcessHelper.IsRunningAsAdmin())
@@ -57,7 +59,7 @@ public partial class ApplyCommand : ICommand
         using var lockFile = new LockFile();
         var statePath = StateService.GetStatePath();
         var success = await ExecutionEngine.ApplyDiffAsync(diff, config.Options, state, statePath, stopOnFailure: StopOnFailure);
-        
+
         if (success)
         {
             AnsiConsole.MarkupLine("\n[green]Done.[/]");
@@ -91,7 +93,7 @@ public partial class StateCommand : ICommand
     public async ValueTask ExecuteAsync(IConsole console)
     {
         var state = StateService.LoadState();
-        
+
         if (state == null)
         {
             AnsiConsole.MarkupLine("[yellow]No state file found.[/]");
@@ -99,7 +101,7 @@ public partial class StateCommand : ICommand
         }
 
         AnsiConsole.MarkupLine("[bold]NTIX State:[/]");
-        
+
         if (state.Winget.Count == 0 && state.Chocolatey.Count == 0 && state.Scoop.Count == 0)
         {
             AnsiConsole.MarkupLine("  [dim](empty)[/]");
@@ -108,10 +110,10 @@ public partial class StateCommand : ICommand
         {
             foreach (var (id, ver) in state.Winget)
                 AnsiConsole.MarkupLine($"  [cyan]winget: {id} ({ver})[/]");
-            
+
             foreach (var (id, ver) in state.Chocolatey)
                 AnsiConsole.MarkupLine($"  [magenta]chocolatey: {id} ({ver})[/]");
-            
+
             foreach (var (id, ver) in state.Scoop)
                 AnsiConsole.MarkupLine($"  [blue]scoop: {id} ({ver})[/]");
         }
