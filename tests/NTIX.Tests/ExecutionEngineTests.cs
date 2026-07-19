@@ -98,9 +98,7 @@ public class ExecutionEngineTests
     [Fact]
     public async Task ApplyDiffAsync_WingetUninstall_UsesMockManager()
     {
-        var mockWinget = new Mock<IWingetManager>();
-        mockWinget.Setup(m => m.UninstallAsync("test-pkg", true, true, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
+        var mockRunner = new MockCommandRunner();
 
         var diff = new DiffResult(
             ToRemove: new List<PackageSpec> { new("test-pkg", "1.0", "winget") });
@@ -114,11 +112,11 @@ public class ExecutionEngineTests
         {
             File.Delete(tempPath);
 
-            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, runner: mockRunner);
 
             result.Should().BeTrue();
             state.Winget.Should().NotContainKey("test-pkg");
-            mockWinget.Verify(m => m.UninstallAsync("test-pkg", true, true, It.IsAny<CancellationToken>()), Times.Once);
+            mockRunner.CapturedCommands.Should().Contain(c => c.Contains("winget uninstall"));
         }
         finally
         {
@@ -134,8 +132,11 @@ public class ExecutionEngineTests
             .ReturnsAsync(true);
         mockWinget.Setup(m => m.UpgradeAsync("winget-upgrade", true, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
-        mockWinget.Setup(m => m.UninstallAsync("winget-remove", true, true, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
+
+        var mockRunner = new MockCommandRunner
+        {
+            OutputResponses = { ["scoop bucket list"] = "main\n" }
+        };
 
         var diff = new DiffResult(
             ToInstall: new List<PackageSpec> { new("winget-pkg", "1.0", "winget") },
@@ -156,7 +157,7 @@ public class ExecutionEngineTests
         {
             File.Delete(tempPath);
 
-            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object, runner: mockRunner);
 
             result.Should().BeTrue();
             state.Winget.Should().ContainKey("winget-pkg").WhoseValue.Should().Be("1.0");
@@ -658,9 +659,7 @@ public class ExecutionEngineTests
     [Fact]
     public async Task ApplyDiffAsync_OnOutputCalled_ForRemove()
     {
-        var mockWinget = new Mock<IWingetManager>();
-        mockWinget.Setup(m => m.UninstallAsync("test-pkg", true, true, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
+        var mockRunner = new MockCommandRunner();
 
         var diff = new DiffResult(
             ToRemove: new List<PackageSpec> { new("test-pkg", "1.0", "winget") });
@@ -677,7 +676,7 @@ public class ExecutionEngineTests
 
             var result = await ExecutionEngine.ApplyDiffAsync(
                 diff, options, state, tempPath,
-                wingetManager: mockWinget.Object,
+                runner: mockRunner,
                 onOutput: msg => outputMessages.Add(msg));
 
             result.Should().BeTrue();
@@ -853,7 +852,10 @@ public class ExecutionEngineTests
     [Fact]
     public async Task ApplyDiffAsync_ScoopUpgrade_Success()
     {
-        var runner = new MockCommandRunner();
+        var runner = new MockCommandRunner
+        {
+            OutputResponses = { ["scoop bucket list"] = "main\n" }
+        };
         var diff = new DiffResult(
             ToUpgrade: new List<PackageSpec> { new("scoop-pkg", "3.0", "scoop") });
         var options = new NTIXOptions(
@@ -899,7 +901,10 @@ public class ExecutionEngineTests
     [Fact]
     public async Task ApplyDiffAsync_ScoopRemove_Success()
     {
-        var runner = new MockCommandRunner();
+        var runner = new MockCommandRunner
+        {
+            OutputResponses = { ["scoop bucket list"] = "main\n" }
+        };
         var diff = new DiffResult(
             ToRemove: new List<PackageSpec> { new("scoop-pkg", "1.0", "scoop") });
         var options = new NTIXOptions(
@@ -1083,7 +1088,7 @@ public class ExecutionEngineTests
     {
         var runner = new MockCommandRunner
         {
-            OutputResponses = { ["scoop bucket list"] = "main\nextras\n" }
+            OutputResponses = { ["scoop bucket list"] = "main\n" }
         };
         var diff = new DiffResult(
             ToInstall: new List<PackageSpec> { new("scoop-pkg", "1.0", "scoop") });
@@ -1099,6 +1104,7 @@ public class ExecutionEngineTests
             var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, runner: runner);
             result.Should().BeTrue();
             runner.CapturedCommands.Should().NotContain(c => c.Contains("scoop bucket add"));
+            runner.CapturedCommands.Should().NotContain(c => c.Contains("scoop bucket rm"));
         }
         finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
     }
@@ -1156,6 +1162,61 @@ public class ExecutionEngineTests
             var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, runner: runner, onError: msg => errorMessages.Add(msg));
             result.Should().BeFalse();
             errorMessages.Should().Contain(m => m.Contains("Scoop bucket was not added"));
+        }
+        finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_ScoopBuckets_RemoveOrphans()
+    {
+        var runner = new MockCommandRunner
+        {
+            OutputResponses = { ["scoop bucket list"] = "main\nextras\nversions\n" }
+        };
+        var diff = new DiffResult();
+        var options = new NTIXOptions(
+            new WingetOptions(),
+            new ChocoOptions(),
+            new ScoopOptions(Enable: true, Buckets: new List<ScoopBucket> { new("main") }));
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        var outputMessages = new List<string>();
+        try
+        {
+            File.Delete(tempPath);
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, runner: runner, onOutput: msg => outputMessages.Add(msg));
+            result.Should().BeTrue();
+            runner.CapturedCommands.Should().Contain(c => c.Contains("scoop bucket rm extras"));
+            runner.CapturedCommands.Should().Contain(c => c.Contains("scoop bucket rm versions"));
+            runner.CapturedCommands.Should().NotContain(c => c.Contains("scoop bucket rm main"));
+            outputMessages.Should().Contain(m => m.Contains("Removing scoop bucket: extras"));
+            outputMessages.Should().Contain(m => m.Contains("Removing scoop bucket: versions"));
+        }
+        finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_ScoopBuckets_RemoveFails_ReportsError()
+    {
+        var runner = new MockCommandRunner
+        {
+            RunAsyncHandler = cmd => cmd.Contains("scoop bucket rm") ? 1 : 0,
+            OutputResponses = { ["scoop bucket list"] = "main\nextras\n" }
+        };
+        var diff = new DiffResult();
+        var options = new NTIXOptions(
+            new WingetOptions(),
+            new ChocoOptions(),
+            new ScoopOptions(Enable: true, Buckets: new List<ScoopBucket> { new("main") }));
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        var errorMessages = new List<string>();
+        try
+        {
+            File.Delete(tempPath);
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, runner: runner, onError: msg => errorMessages.Add(msg));
+            result.Should().BeFalse();
+            errorMessages.Should().Contain(m => m.Contains("Failed to remove scoop bucket: extras"));
         }
         finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
     }

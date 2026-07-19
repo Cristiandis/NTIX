@@ -72,6 +72,14 @@ public static class CommandBuilder
         return cmd;
     }
 
+    public static string BuildWingetUninstall(string id, WingetOptions opts)
+    {
+        var cmd = $"winget uninstall --id {SanitizeId(id)} --exact";
+        if (opts.AcceptAgreements) cmd += " --accept-source-agreements --accept-package-agreements";
+        if (!opts.Interactive) cmd += " --silent";
+        return cmd;
+    }
+
     public static string BuildScoopUninstall(string id, ScoopOptions opts)
     {
         var cmd = $"scoop uninstall {SanitizeId(id)}";
@@ -99,5 +107,10 @@ public static class CommandBuilder
     public static string BuildScoopBucketList()
     {
         return "scoop bucket list";
+    }
+
+    public static string BuildScoopBucketRemove(string name)
+    {
+        return $"scoop bucket rm {SanitizeId(name)}";
     }
 }

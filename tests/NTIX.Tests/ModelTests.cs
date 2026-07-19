@@ -1,5 +1,6 @@
 using FluentAssertions;
 using NTIX.Core.Models;
+using NTIX.Core.PackageManager;
 
 namespace NTIX.Tests;
 
@@ -113,6 +114,42 @@ public class ModelTests
         var diff = new DiffResult();
         diff.Warnings.Should().NotBeNull();
         diff.Warnings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DiffResult_IsEmpty_True_WhenOnlyToSkip()
+    {
+        var diff = new DiffResult(
+            ToSkip: new List<PackageSpec>
+            {
+                new("pkg1", "1.0", "winget"),
+                new("pkg2", null, "chocolatey")
+            });
+        diff.IsEmpty.Should().BeTrue();
+    }
+
+    [Fact]
+    public void BuildWingetUninstall_DefaultFlags()
+    {
+        var cmd = CommandBuilder.BuildWingetUninstall("Git.Git", new WingetOptions());
+        cmd.Should().Be("winget uninstall --id Git.Git --exact --silent");
+    }
+
+    [Fact]
+    public void BuildWingetUninstall_WithAcceptAgreements()
+    {
+        var opts = new WingetOptions(AcceptAgreements: true);
+        var cmd = CommandBuilder.BuildWingetUninstall("Git.Git", opts);
+        cmd.Should().Contain("--accept-source-agreements --accept-package-agreements");
+    }
+
+    [Fact]
+    public void BuildWingetUninstall_Interactive()
+    {
+        var opts = new WingetOptions(Interactive: true);
+        var cmd = CommandBuilder.BuildWingetUninstall("Git.Git", opts);
+        cmd.Should().NotContain("--silent");
+        cmd.Should().NotContain("--accept");
     }
 
     [Fact]

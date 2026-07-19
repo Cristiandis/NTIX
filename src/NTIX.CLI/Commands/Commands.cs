@@ -50,7 +50,7 @@ public partial class ApplyCommand : ICommand
         if (isNew)
         {
             AnsiConsole.MarkupLine($"[green]Created default config at {ConfigPath}[/]");
-            AnsiConsole.MarkupLine("Edit it to add your packages, then run [bold]ntix diff[/] again.");
+            AnsiConsole.MarkupLine("Edit it to add your packages, then run [bold]ntix apply[/] again.");
             return;
         }
         var config = ConfigLoader.Load(ConfigPath);
