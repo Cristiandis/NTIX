@@ -108,4 +108,9 @@ public static class CommandBuilder
     {
         return "scoop bucket list";
     }
+
+    public static string BuildScoopBucketRemove(string name)
+    {
+        return $"scoop bucket rm {SanitizeId(name)}";
+    }
 }

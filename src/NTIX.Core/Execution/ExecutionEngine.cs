@@ -48,10 +48,14 @@ public static class ExecutionEngine
         var allOk = true;
         var manager = wingetManager ?? new WingetManager();
 
-        if (options.Scoop.Enable && diff.ToInstall.Any(p => p.Source == "scoop"))
+        if (options.Scoop.Enable)
         {
             var ensured = await EnsureScoopBucketsAsync(options.Scoop.Buckets, cmd, onOutput, onError);
             if (!ensured)
+                allOk = false;
+
+            var removed = await RemoveOrphanBucketsAsync(options.Scoop.Buckets, cmd, onOutput, onError);
+            if (!removed)
                 allOk = false;
         }
 
@@ -173,6 +177,36 @@ public static class ExecutionEngine
             if (!reAdded.Contains(bucket.Name, StringComparer.OrdinalIgnoreCase))
             {
                 onError?.Invoke($"Scoop bucket was not added: {bucket.Name}");
+                allOk = false;
+            }
+        }
+
+        return allOk;
+    }
+
+    internal static async Task<bool> RemoveOrphanBucketsAsync(
+        List<ScoopBucket> configuredBuckets,
+        ICommandRunner runner,
+        Action<string>? onOutput = null,
+        Action<string>? onError = null)
+    {
+        var output = await runner.RunOutputAsync(CommandBuilder.BuildScoopBucketList());
+        var systemBuckets = ParseScoopBucketList(output);
+
+        var configuredNames = new HashSet<string>(
+            configuredBuckets.Select(b => b.Name), StringComparer.OrdinalIgnoreCase);
+
+        var allOk = true;
+        foreach (var bucketName in systemBuckets)
+        {
+            if (configuredNames.Contains(bucketName))
+                continue;
+
+            onOutput?.Invoke($"Removing scoop bucket: {bucketName}...");
+            var exitCode = await runner.RunAsync(CommandBuilder.BuildScoopBucketRemove(bucketName));
+            if (exitCode != 0)
+            {
+                onError?.Invoke($"Failed to remove scoop bucket: {bucketName}");
                 allOk = false;
             }
         }

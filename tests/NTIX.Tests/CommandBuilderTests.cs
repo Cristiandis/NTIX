@@ -263,6 +263,13 @@ public class CommandBuilderTests
     }
 
     [Fact]
+    public void BuildScoopBucketRemove_ReturnsCommand()
+    {
+        var cmd = CommandBuilder.BuildScoopBucketRemove("versions");
+        cmd.Should().Be("scoop bucket rm versions");
+    }
+
+    [Fact]
     public void SanitizeId_ValidIds_PassThrough()
     {
         CommandBuilder.SanitizeId("test").Should().Be("test");
