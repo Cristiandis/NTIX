@@ -38,15 +38,13 @@ jobs:
 
       - name: Create portable zip
         shell: bash
-        run: |
-          cd src/NTIX.Cli/bin/Release/net10.0/win-x64/publish/
-          7z a ../../../../../../ntix-${{ steps.version.outputs.VERSION }}-win-x64.zip ntix.exe
-
-      - name: Setup Inno Setup
-        uses: lives/setup-inno-setup@v1
+        run: 7z a ntix-${{ steps.version.outputs.VERSION }}-win-x64.zip src/NTIX.Cli/bin/Release/net10.0/win-x64/publish/ntix.exe
 
       - name: Compile installer
-        run: iscc /DVersion=${{ steps.version.outputs.VERSION }} installer\ntix-setup.iss
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.9
+        with:
+          path: installer/ntix-setup.iss
+          options: /DVersion=${{ steps.version.outputs.VERSION }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
