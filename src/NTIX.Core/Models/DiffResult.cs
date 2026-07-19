@@ -18,6 +18,6 @@ public record DiffResult(
     public string? Error { get; init; } = Error;
     public List<string> Warnings { get; init; } = Warnings ?? new();
 
-    public bool IsEmpty => ToInstall.Count == 0 && ToUpgrade.Count == 0 && ToSkip.Count == 0 && ToRemove.Count == 0 && ToAdopt.Count == 0;
+    public bool IsEmpty => ToInstall.Count == 0 && ToUpgrade.Count == 0 && ToRemove.Count == 0 && ToAdopt.Count == 0;
     public bool HasError => !string.IsNullOrEmpty(Error);
 }

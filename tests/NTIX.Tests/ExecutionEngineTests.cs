@@ -98,9 +98,7 @@ public class ExecutionEngineTests
     [Fact]
     public async Task ApplyDiffAsync_WingetUninstall_UsesMockManager()
     {
-        var mockWinget = new Mock<IWingetManager>();
-        mockWinget.Setup(m => m.UninstallAsync("test-pkg", true, true, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
+        var mockRunner = new MockCommandRunner();
 
         var diff = new DiffResult(
             ToRemove: new List<PackageSpec> { new("test-pkg", "1.0", "winget") });
@@ -114,11 +112,11 @@ public class ExecutionEngineTests
         {
             File.Delete(tempPath);
 
-            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, runner: mockRunner);
 
             result.Should().BeTrue();
             state.Winget.Should().NotContainKey("test-pkg");
-            mockWinget.Verify(m => m.UninstallAsync("test-pkg", true, true, It.IsAny<CancellationToken>()), Times.Once);
+            mockRunner.CapturedCommands.Should().Contain(c => c.Contains("winget uninstall"));
         }
         finally
         {
@@ -134,8 +132,8 @@ public class ExecutionEngineTests
             .ReturnsAsync(true);
         mockWinget.Setup(m => m.UpgradeAsync("winget-upgrade", true, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
-        mockWinget.Setup(m => m.UninstallAsync("winget-remove", true, true, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
+
+        var mockRunner = new MockCommandRunner();
 
         var diff = new DiffResult(
             ToInstall: new List<PackageSpec> { new("winget-pkg", "1.0", "winget") },
@@ -156,7 +154,7 @@ public class ExecutionEngineTests
         {
             File.Delete(tempPath);
 
-            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object);
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, wingetManager: mockWinget.Object, runner: mockRunner);
 
             result.Should().BeTrue();
             state.Winget.Should().ContainKey("winget-pkg").WhoseValue.Should().Be("1.0");
@@ -658,9 +656,7 @@ public class ExecutionEngineTests
     [Fact]
     public async Task ApplyDiffAsync_OnOutputCalled_ForRemove()
     {
-        var mockWinget = new Mock<IWingetManager>();
-        mockWinget.Setup(m => m.UninstallAsync("test-pkg", true, true, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
+        var mockRunner = new MockCommandRunner();
 
         var diff = new DiffResult(
             ToRemove: new List<PackageSpec> { new("test-pkg", "1.0", "winget") });
@@ -677,7 +673,7 @@ public class ExecutionEngineTests
 
             var result = await ExecutionEngine.ApplyDiffAsync(
                 diff, options, state, tempPath,
-                wingetManager: mockWinget.Object,
+                runner: mockRunner,
                 onOutput: msg => outputMessages.Add(msg));
 
             result.Should().BeTrue();

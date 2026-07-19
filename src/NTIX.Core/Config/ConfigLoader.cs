@@ -25,7 +25,7 @@ public static class ConfigLoader
     {
         var path = configPath ?? DefaultConfigPath;
 
-        if (configPath is null && !File.Exists(path))
+        if (!File.Exists(path))
         {
             Directory.CreateDirectory(DefaultConfigDir);
             File.WriteAllText(path, DefaultConfigContent);

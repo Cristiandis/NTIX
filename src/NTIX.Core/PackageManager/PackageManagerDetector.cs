@@ -84,7 +84,10 @@ public static class PackageManagerDetector
                 result.Winget[kvp.Key] = kvp.Value;
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning($"[NTIX] Winget detection failed: {ex.Message}");
+        }
 
         var chocoOut = await RunProcessAsync(cmd, "choco list -r --local-only --limit-output 2>nul");
         if (!string.IsNullOrEmpty(chocoOut))
