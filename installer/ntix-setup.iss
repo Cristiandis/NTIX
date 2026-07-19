@@ -47,7 +47,7 @@ Name: "installscoop"; Description: "Install &Scoop"; GroupDescription: "Optional
 
 [Dirs]
 ; Ensure the config folder exists before we offer to open it post-install
-Name: "{%USERPROFILE}\ntix"
+Name: "{%USERPROFILE}\ntix"; Flags: uninsneveruninstall
 
 [Files]
 Source: "..\src\NTIX.Cli\bin\Release\net10.0\win-x64\publish\ntix.exe"; DestDir: "{app}"; Flags: ignoreversion
