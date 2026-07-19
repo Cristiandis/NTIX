@@ -291,7 +291,13 @@ public static class ConfigLoader
             var t = options["chocolatey"].Read<LuaTable>();
             choco = new ChocoOptions(
                 Enable: ReadBool(t["enable"], choco.Enable),
-                Yes: ReadBool(t["yes"], choco.Yes)
+                Yes: ReadBool(t["yes"], choco.Yes),
+                Force: ReadBool(t["force"], choco.Force),
+                IgnoreDependencies: ReadBool(t["ignoreDependencies"], choco.IgnoreDependencies),
+                AllowDowngrade: ReadBool(t["allowDowngrade"], choco.AllowDowngrade),
+                SkipPowerShell: ReadBool(t["skipPowerShell"], choco.SkipPowerShell),
+                Params: ReadString(t["params"], choco.Params),
+                Pre: ReadBool(t["pre"], choco.Pre)
             );
         }
 
@@ -325,7 +331,12 @@ public static class ConfigLoader
             }
             scoop = new ScoopOptions(
                 Enable: ReadBool(t["enable"], scoop.Enable),
-                Buckets: buckets
+                Buckets: buckets,
+                Global: ReadBool(t["global"], scoop.Global),
+                Independent: ReadBool(t["independent"], scoop.Independent),
+                NoCache: ReadBool(t["noCache"], scoop.NoCache),
+                SkipHashCheck: ReadBool(t["skipHashCheck"], scoop.SkipHashCheck),
+                Arch: ReadString(t["arch"], scoop.Arch)
             );
         }
 
@@ -334,6 +345,9 @@ public static class ConfigLoader
 
     private static bool ReadBool(LuaValue value, bool fallback) =>
         value.Type == LuaValueType.Boolean ? value.Read<bool>() : fallback;
+
+    private static string? ReadString(LuaValue value, string? fallback) =>
+        value.Type == LuaValueType.String ? value.Read<string>() : fallback;
 
     private static List<PackageEntry> ReadPackageList(LuaTable pkgs, string key)
     {

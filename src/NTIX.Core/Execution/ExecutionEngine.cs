@@ -52,8 +52,8 @@ public static class ExecutionEngine
             bool success = pkg.Source switch
             {
                 "winget" => await manager.InstallAsync(pkg.Id, pkg.Version, options.Winget.AcceptAgreements, !options.Winget.Interactive),
-                "chocolatey" => await RunCommandAsync(CommandBuilder.BuildChocoInstall(pkg.Id, pkg.Version, options.Chocolatey.Yes)) == 0,
-                "scoop" => await RunCommandAsync(CommandBuilder.BuildScoopInstall(pkg.Id, pkg.Version)) == 0,
+                "chocolatey" => await RunCommandAsync(CommandBuilder.BuildChocoInstall(pkg.Id, pkg.Version, options.Chocolatey)) == 0,
+                "scoop" => await RunCommandAsync(CommandBuilder.BuildScoopInstall(pkg.Id, pkg.Version, options.Scoop)) == 0,
                 _ => throw new InvalidOperationException($"Unknown source: {pkg.Source}")
             };
 
@@ -79,8 +79,8 @@ public static class ExecutionEngine
             bool success = pkg.Source switch
             {
                 "winget" => await manager.UpgradeAsync(pkg.Id, options.Winget.AcceptAgreements, !options.Winget.Interactive),
-                "chocolatey" => await RunCommandAsync(CommandBuilder.BuildChocoUpgrade(pkg.Id, options.Chocolatey.Yes)) == 0,
-                "scoop" => await RunCommandAsync(CommandBuilder.BuildScoopUpgrade(pkg.Id)) == 0,
+                "chocolatey" => await RunCommandAsync(CommandBuilder.BuildChocoUpgrade(pkg.Id, options.Chocolatey)) == 0,
+                "scoop" => await RunCommandAsync(CommandBuilder.BuildScoopUpgrade(pkg.Id, options.Scoop)) == 0,
                 _ => throw new InvalidOperationException($"Unknown source: {pkg.Source}")
             };
 
@@ -106,8 +106,8 @@ public static class ExecutionEngine
             bool success = pkg.Source switch
             {
                 "winget" => await manager.UninstallAsync(pkg.Id, options.Winget.AcceptAgreements, !options.Winget.Interactive),
-                "chocolatey" => await RunCommandAsync(CommandBuilder.BuildChocoUninstall(pkg.Id, options.Chocolatey.Yes)) == 0,
-                "scoop" => await RunCommandAsync(CommandBuilder.BuildScoopUninstall(pkg.Id)) == 0,
+                "chocolatey" => await RunCommandAsync(CommandBuilder.BuildChocoUninstall(pkg.Id, options.Chocolatey)) == 0,
+                "scoop" => await RunCommandAsync(CommandBuilder.BuildScoopUninstall(pkg.Id, options.Scoop)) == 0,
                 _ => throw new InvalidOperationException($"Unknown source: {pkg.Source}")
             };
 
