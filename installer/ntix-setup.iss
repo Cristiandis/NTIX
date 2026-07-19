@@ -61,21 +61,21 @@ Filename: "powershell.exe"; \
   Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$ProgressPreference='SilentlyContinue'; Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe"""; \
   StatusMsg: "Installing Winget..."; \
   Tasks: installwinget; \
-  Flags: RunHidden WaitUntilTerminated SkipIfFailed
+  Flags: RunHidden WaitUntilTerminated
 
 ; Chocolatey — official install script (skips if choco already on PATH)
 Filename: "powershell.exe"; \
-  Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""if (Get-Command choco -ErrorAction SilentlyContinue) { Write-Host 'Chocolatey already installed.' } else { irm community.chocolatey.org/install.ps1 | iex }"""; \
+  Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""if (Get-Command choco -ErrorAction SilentlyContinue) {{ Write-Host 'Chocolatey already installed.' }} else {{ irm community.chocolatey.org/install.ps1 | iex }}"""; \
   StatusMsg: "Installing Chocolatey..."; \
   Tasks: installchoco; \
-  Flags: RunHidden WaitUntilTerminated SkipIfFailed
+  Flags: RunHidden WaitUntilTerminated
 
 ; Scoop — official install script (skips if scoop already on PATH)
 Filename: "powershell.exe"; \
-  Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""if (Get-Command scoop -ErrorAction SilentlyContinue) { Write-Host 'Scoop already installed.' } else { irm get.scoop.sh | iex }"""; \
+  Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""if (Get-Command scoop -ErrorAction SilentlyContinue) {{ Write-Host 'Scoop already installed.' }} else {{ irm get.scoop.sh | iex }}"""; \
   StatusMsg: "Installing Scoop..."; \
   Tasks: installscoop; \
-  Flags: RunHidden WaitUntilTerminated SkipIfFailed
+  Flags: RunHidden WaitUntilTerminated
 
 ; Open documentation after install
 Filename: "https://cristiandis.gitbook.io/ntix"; \
