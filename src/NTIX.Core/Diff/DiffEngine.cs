@@ -11,6 +11,7 @@ public static class DiffEngine
         InstalledPackages? installed = null,
         IWingetManager? wingetManager = null,
         bool validatePackages = true,
+        bool adoptMode = false,
         IProgress<string>? progress = null)
     {
         progress?.Report("Checking package managers...");
@@ -33,10 +34,6 @@ public static class DiffEngine
         progress?.Report("Discovering installed packages...");
         var installedPkgs = installed ?? await PackageManagerDetector.GetInstalledPackagesAsync();
 
-        var wingetInstalled = new HashSet<string>(installedPkgs.Winget.Keys, StringComparer.OrdinalIgnoreCase);
-        var chocoInstalled = new HashSet<string>(installedPkgs.Chocolatey.Keys, StringComparer.OrdinalIgnoreCase);
-        var scoopInstalled = new HashSet<string>(installedPkgs.Scoop.Keys, StringComparer.OrdinalIgnoreCase);
-
         var hasWingetUnpinned = config.WingetPackages.Any(p => p.Version == null);
         var hasChocoUnpinned = config.ChocoPackages.Any(p => p.Version == null);
         var hasScoopUnpinned = config.ScoopPackages.Any(p => p.Version == null);
@@ -56,9 +53,9 @@ public static class DiffEngine
             ? PackageManagerDetector.GetScoopUpgradablePackages()
             : new Dictionary<string, UpgradeInfo>();
 
-        ClassifyPackages(result, config.WingetPackages, "winget", wingetEnabled, wingetInstalled, state.Winget, wingetUpgradable);
-        ClassifyPackages(result, config.ChocoPackages, "chocolatey", chocoEnabled, chocoInstalled, state.Chocolatey, chocoUpgradable);
-        ClassifyPackages(result, config.ScoopPackages, "scoop", scoopEnabled, scoopInstalled, state.Scoop, scoopUpgradable);
+        ClassifyPackages(result, config.WingetPackages, "winget", wingetEnabled, installedPkgs.Winget, state.Winget, wingetUpgradable, adoptMode);
+        ClassifyPackages(result, config.ChocoPackages, "chocolatey", chocoEnabled, installedPkgs.Chocolatey, state.Chocolatey, chocoUpgradable, adoptMode);
+        ClassifyPackages(result, config.ScoopPackages, "scoop", scoopEnabled, installedPkgs.Scoop, state.Scoop, scoopUpgradable, adoptMode);
 
         if (validatePackages)
         {
@@ -79,16 +76,17 @@ public static class DiffEngine
         List<PackageEntry> packages,
         string sourceName,
         bool enabled,
-        HashSet<string> installed,
+        Dictionary<string, string> installedDict,
         Dictionary<string, string> stateDict,
-        Dictionary<string, UpgradeInfo> upgradable)
+        Dictionary<string, UpgradeInfo> upgradable,
+        bool adoptMode)
     {
         if (!enabled) return;
 
         foreach (var pkg in packages)
         {
             var spec = new PackageSpec(pkg.Id, pkg.Version, sourceName);
-            var isInstalled = installed.Contains(pkg.Id);
+            var isInstalled = installedDict.ContainsKey(pkg.Id);
             var inState = stateDict.ContainsKey(pkg.Id);
 
             if (pkg.Version == null)
@@ -101,6 +99,14 @@ public static class DiffEngine
                 else if (!isInstalled && !inState)
                 {
                     result.ToInstall.Add(spec);
+                }
+                else if (isInstalled && inState)
+                {
+                    result.ToSkip.Add(spec);
+                }
+                else if (isInstalled && adoptMode)
+                {
+                    result.ToAdopt.Add(spec);
                 }
                 else if (isInstalled)
                 {
@@ -120,6 +126,14 @@ public static class DiffEngine
                         result.ToInstall.Add(spec);
                     else
                         result.ToSkip.Add(spec);
+                }
+                else if (isInstalled && adoptMode)
+                {
+                    var installedVersion = installedDict[pkg.Id];
+                    if (string.Equals(installedVersion, pkg.Version, StringComparison.OrdinalIgnoreCase))
+                        result.ToAdopt.Add(spec with { Version = installedVersion });
+                    else
+                        result.ToInstall.Add(spec);
                 }
                 else
                 {

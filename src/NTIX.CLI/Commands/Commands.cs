@@ -28,6 +28,9 @@ public partial class ApplyCommand : ICommand
     [CommandOption("stop-on-failure", Description = "Stop on first package failure instead of continuing")]
     public bool StopOnFailure { get; set; }
 
+    [CommandOption("adopt", Description = "Adopt already-installed packages into NTIX state")]
+    public bool Adopt { get; set; }
+
     [SupportedOSPlatform("windows")]
     public async ValueTask ExecuteAsync(IConsole console)
     {
@@ -58,7 +61,7 @@ public partial class ApplyCommand : ICommand
             .StartAsync($"[bold]{configFileName}[/]", async ctx =>
             {
                 var progress = new Progress<string>(s => ctx.Status($"[dim]{s}[/]"));
-                diff = await DiffEngine.ComputeDiffAsync(config, state, progress: progress);
+                diff = await DiffEngine.ComputeDiffAsync(config, state, progress: progress, adoptMode: Adopt);
             });
 
         var tree = CommandsHelper.BuildDiffTree(configFileName, config, diff);
@@ -105,6 +108,9 @@ public partial class DiffCommand : ICommand
     [CommandParameter(0, Name = "config-path", Description = "Path to configuration file (default: ~/ntix/config.lua)")]
     public string? ConfigPath { get; set; }
 
+    [CommandOption("adopt", Description = "Show packages that would be adopted")]
+    public bool Adopt { get; set; }
+
     public async ValueTask ExecuteAsync(IConsole console)
     {
         var isNew = ConfigPath is null && !File.Exists(ConfigLoader.DefaultConfigPath);
@@ -126,7 +132,7 @@ public partial class DiffCommand : ICommand
             .StartAsync($"[bold]{configFileName}[/]", async ctx =>
             {
                 var progress = new Progress<string>(s => ctx.Status($"[dim]{s}[/]"));
-                diff = await DiffEngine.ComputeDiffAsync(config, state, progress: progress);
+                diff = await DiffEngine.ComputeDiffAsync(config, state, progress: progress, adoptMode: Adopt);
             });
 
         var tree = CommandsHelper.BuildDiffTree(configFileName, config, diff);
@@ -199,6 +205,12 @@ internal static class CommandsHelper
         {
             var node = tree.AddNode($"[yellow]\u2191 To upgrade ({diff.ToUpgrade.Count})[/]");
             AddGroupedBySourceWithVersions(node, diff.ToUpgrade);
+        }
+
+        if (diff.ToAdopt.Count > 0)
+        {
+            var node = tree.AddNode($"[cyan]\u271a To adopt ({diff.ToAdopt.Count})[/]");
+            AddGroupedBySource(node, diff.ToAdopt, "cyan", showVersion: true);
         }
 
         if (diff.ToSkip.Count > 0)

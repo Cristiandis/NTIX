@@ -713,4 +713,68 @@ public class ExecutionEngineTests
             if (File.Exists(tempPath)) File.Delete(tempPath);
         }
     }
+
+    [Fact]
+    public async Task ApplyDiffAsync_ToAdopt_UpdatesStateWithoutInstall()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+
+        var diff = new DiffResult(
+            ToAdopt: new List<PackageSpec> { new("manual-pkg", "3.0", "winget") });
+        var options = new NTIXOptions(
+            new WingetOptions(Enable: true, AcceptAgreements: true, Interactive: false),
+            new ChocoOptions(),
+            new ScoopOptions());
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        var outputMessages = new List<string>();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(
+                diff, options, state, tempPath,
+                wingetManager: mockWinget.Object,
+                onOutput: msg => outputMessages.Add(msg));
+
+            result.Should().BeTrue();
+            state.Winget.Should().ContainKey("manual-pkg").WhoseValue.Should().Be("3.0");
+            outputMessages.Should().Contain(m => m.Contains("Adopting"));
+            mockWinget.Verify(m => m.InstallAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_ToAdopt_NullVersion_RecordsLatest()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+
+        var diff = new DiffResult(
+            ToAdopt: new List<PackageSpec> { new("manual-pkg", null, "winget") });
+        var options = new NTIXOptions(
+            new WingetOptions(Enable: true, AcceptAgreements: true, Interactive: false),
+            new ChocoOptions(),
+            new ScoopOptions());
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(
+                diff, options, state, tempPath,
+                wingetManager: mockWinget.Object);
+
+            result.Should().BeTrue();
+            state.Winget.Should().ContainKey("manual-pkg").WhoseValue.Should().Be("latest");
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
 }

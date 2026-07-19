@@ -133,6 +133,13 @@ public static class ExecutionEngine
             }
         }
 
+        foreach (var pkg in diff.ToAdopt)
+        {
+            onOutput?.Invoke($"Adopting {pkg.Source}:{pkg.Id}...");
+            UpdateState(state, pkg, true);
+            StateService.SaveState(state, statePath);
+        }
+
         return allOk;
     }
 

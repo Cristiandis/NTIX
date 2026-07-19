@@ -505,4 +505,111 @@ public class DiffEngineTests
         diff.ToInstall.Should().HaveCount(1);
         mockWinget.Verify(m => m.PackageExistsAsync("new-pkg", It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    [Fact]
+    public async Task ComputeDiff_AdoptMode_InstalledNotInState_ToAdopt()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.IsInstalled).Returns(true);
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string> { { "manual-pkg", "3.0" } });
+        mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+
+        var installed = new InstalledPackages
+        {
+            Winget = new Dictionary<string, string> { { "manual-pkg", "3.0" } }
+        };
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(), new ScoopOptions()),
+            WingetPackages: new List<PackageEntry> { new("manual-pkg", null) });
+        var state = new State();
+
+        var diff = await DiffEngine.ComputeDiffAsync(config, state, installed, mockWinget.Object, adoptMode: true);
+
+        diff.ToAdopt.Should().HaveCount(1);
+        diff.ToAdopt[0].Id.Should().Be("manual-pkg");
+        diff.ToSkip.Should().BeEmpty();
+        diff.ToInstall.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ComputeDiff_NoAdoptMode_InstalledNotInState_ToSkip()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.IsInstalled).Returns(true);
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string> { { "manual-pkg", "3.0" } });
+        mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+
+        var installed = new InstalledPackages
+        {
+            Winget = new Dictionary<string, string> { { "manual-pkg", "3.0" } }
+        };
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(), new ScoopOptions()),
+            WingetPackages: new List<PackageEntry> { new("manual-pkg", null) });
+        var state = new State();
+
+        var diff = await DiffEngine.ComputeDiffAsync(config, state, installed, mockWinget.Object, adoptMode: false);
+
+        diff.ToSkip.Should().HaveCount(1);
+        diff.ToSkip[0].Id.Should().Be("manual-pkg");
+        diff.ToAdopt.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ComputeDiff_AdoptMode_PinnedVersionMatches_ToAdopt()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.IsInstalled).Returns(true);
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string> { { "pinned-pkg", "1.0" } });
+        mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+
+        var installed = new InstalledPackages
+        {
+            Winget = new Dictionary<string, string> { { "pinned-pkg", "1.0" } }
+        };
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(), new ScoopOptions()),
+            WingetPackages: new List<PackageEntry> { new("pinned-pkg", "1.0") });
+        var state = new State();
+
+        var diff = await DiffEngine.ComputeDiffAsync(config, state, installed, mockWinget.Object, adoptMode: true);
+
+        diff.ToAdopt.Should().HaveCount(1);
+        diff.ToAdopt[0].Id.Should().Be("pinned-pkg");
+        diff.ToAdopt[0].Version.Should().Be("1.0");
+        diff.ToInstall.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ComputeDiff_AdoptMode_PinnedVersionMismatch_ToInstall()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.IsInstalled).Returns(true);
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string> { { "pinned-pkg", "1.0" } });
+        mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+
+        var installed = new InstalledPackages
+        {
+            Winget = new Dictionary<string, string> { { "pinned-pkg", "1.0" } }
+        };
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(), new ScoopOptions()),
+            WingetPackages: new List<PackageEntry> { new("pinned-pkg", "2.0") });
+        var state = new State();
+
+        var diff = await DiffEngine.ComputeDiffAsync(config, state, installed, mockWinget.Object, validatePackages: false, adoptMode: true);
+
+        diff.ToInstall.Should().HaveCount(1);
+        diff.ToInstall[0].Id.Should().Be("pinned-pkg");
+        diff.ToInstall[0].Version.Should().Be("2.0");
+        diff.ToAdopt.Should().BeEmpty();
+    }
 }
