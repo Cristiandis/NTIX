@@ -222,6 +222,20 @@ internal static class CommandsHelper
         if (diff.ToSkip.Count > 0)
             tree.AddNode($"[dim]\u2713 Already managed ({diff.ToSkip.Count})[/]");
 
+        if (diff.BucketsToAdd.Count > 0)
+        {
+            var node = tree.AddNode($"[green]\u2191 Buckets to add ({diff.BucketsToAdd.Count})[/]");
+            foreach (var b in diff.BucketsToAdd.OrderBy(b => b.Name))
+                node.AddNode($"[magenta]{b.Name}[/]");
+        }
+
+        if (diff.BucketsToRemove.Count > 0)
+        {
+            var node = tree.AddNode($"[red]\u2193 Buckets to remove ({diff.BucketsToRemove.Count})[/]");
+            foreach (var b in diff.BucketsToRemove.OrderBy(b => b.Name))
+                node.AddNode($"[magenta]{b.Name}[/]");
+        }
+
         if (diff.ToRemove.Count > 0)
         {
             var node = tree.AddNode($"[red]\u2717 Orphans ({diff.ToRemove.Count})[/]");

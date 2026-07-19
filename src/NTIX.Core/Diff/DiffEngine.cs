@@ -13,7 +13,8 @@ public static class DiffEngine
         bool validatePackages = true,
         bool adoptMode = false,
         bool upgradeMode = false,
-        IProgress<string>? progress = null)
+        IProgress<string>? progress = null,
+        ICommandRunner? runner = null)
     {
         progress?.Report("Checking package managers...");
         var (valid, error, warnings) = await PackageManagerDetector.ValidateManagersAsync(config.Options, config, wingetManager);
@@ -33,7 +34,7 @@ public static class DiffEngine
         result.Warnings.AddRange(warnings);
 
         progress?.Report("Discovering installed packages...");
-        var installedPkgs = installed ?? await PackageManagerDetector.GetInstalledPackagesAsync();
+        var installedPkgs = installed ?? await PackageManagerDetector.GetInstalledPackagesAsync(runner: runner);
 
         var hasWingetUnpinned = config.WingetPackages.Any(p => p.Version == null);
         var hasChocoUnpinned = config.ChocoPackages.Any(p => p.Version == null);
@@ -69,7 +70,53 @@ public static class DiffEngine
         FindOrphans(result, state.Chocolatey, config.ChocoPackages, "chocolatey");
         FindOrphans(result, state.Scoop, config.ScoopPackages, "scoop");
 
+        if (scoopEnabled && config.Options?.Scoop?.Buckets != null)
+        {
+            progress?.Report("Checking scoop buckets...");
+            await ComputeBucketDiffAsync(result, config.Options.Scoop.Buckets, state.ScoopBuckets, runner);
+        }
+
         return result;
+    }
+
+    internal static async Task ComputeBucketDiffAsync(
+        DiffResult result,
+        List<ScoopBucket> configuredBuckets,
+        Dictionary<string, string?> stateBuckets,
+        ICommandRunner? runner = null)
+    {
+        var cmd = runner ?? new ProcessCommandRunner();
+        var systemBuckets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var output = await cmd.RunOutputAsync(CommandBuilder.BuildScoopBucketList());
+        foreach (var line in output.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith('-'))
+                continue;
+            var match = System.Text.RegularExpressions.Regex.Match(trimmed, @"^(\S+)");
+            if (match.Success)
+            {
+                var name = match.Groups[1].Value;
+                if (!string.Equals(name, "Name", StringComparison.OrdinalIgnoreCase))
+                    systemBuckets.Add(name);
+            }
+        }
+
+        var configuredNames = new HashSet<string>(
+            configuredBuckets.Select(b => b.Name), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var bucket in configuredBuckets)
+        {
+            if (!systemBuckets.Contains(bucket.Name))
+                result.BucketsToAdd.Add(bucket);
+        }
+
+        foreach (var (name, _) in stateBuckets)
+        {
+            if (!configuredNames.Contains(name))
+                result.BucketsToRemove.Add(new ScoopBucket(name));
+        }
     }
 
     private static void ClassifyPackages(

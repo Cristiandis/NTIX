@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="NTIX.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="LuaCSharp" Version="0.5.5" />
     <PackageReference Include="WGet.NET" Version="4.4.1" />
   </ItemGroup>

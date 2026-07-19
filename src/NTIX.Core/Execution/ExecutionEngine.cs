@@ -50,13 +50,37 @@ public static class ExecutionEngine
 
         if (options.Scoop.Enable)
         {
-            var ensured = await EnsureScoopBucketsAsync(options.Scoop.Buckets, cmd, onOutput, onError);
-            if (!ensured)
-                allOk = false;
+            foreach (var bucket in diff.BucketsToAdd)
+            {
+                onOutput?.Invoke($"Adding scoop bucket: {bucket.Name}...");
+                var exitCode = await cmd.RunAsync(CommandBuilder.BuildScoopBucketAdd(bucket.Name, bucket.Url));
+                if (exitCode != 0)
+                {
+                    onError?.Invoke($"Failed to add scoop bucket: {bucket.Name}");
+                    allOk = false;
+                }
+                else
+                {
+                    state.ScoopBuckets[bucket.Name] = bucket.Url;
+                    StateService.SaveState(state, statePath);
+                }
+            }
 
-            var removed = await RemoveOrphanBucketsAsync(options.Scoop.Buckets, cmd, onOutput, onError);
-            if (!removed)
-                allOk = false;
+            foreach (var bucket in diff.BucketsToRemove)
+            {
+                onOutput?.Invoke($"Removing scoop bucket: {bucket.Name}...");
+                var exitCode = await cmd.RunAsync(CommandBuilder.BuildScoopBucketRemove(bucket.Name));
+                if (exitCode != 0)
+                {
+                    onError?.Invoke($"Failed to remove scoop bucket: {bucket.Name}");
+                    allOk = false;
+                }
+                else
+                {
+                    state.ScoopBuckets.Remove(bucket.Name);
+                    StateService.SaveState(state, statePath);
+                }
+            }
         }
 
         foreach (var pkg in diff.ToInstall)
@@ -148,96 +172,7 @@ public static class ExecutionEngine
         return allOk;
     }
 
-    internal static async Task<bool> EnsureScoopBucketsAsync(
-        List<ScoopBucket> configuredBuckets,
-        ICommandRunner runner,
-        Action<string>? onOutput = null,
-        Action<string>? onError = null)
-    {
-        var output = await runner.RunOutputAsync(CommandBuilder.BuildScoopBucketList());
-        var addedBuckets = ParseScoopBucketList(output);
-
-        var allOk = true;
-        foreach (var bucket in configuredBuckets)
-        {
-            if (addedBuckets.Contains(bucket.Name, StringComparer.OrdinalIgnoreCase))
-                continue;
-
-            onOutput?.Invoke($"Adding scoop bucket: {bucket.Name}...");
-            var exitCode = await runner.RunAsync(CommandBuilder.BuildScoopBucketAdd(bucket.Name, bucket.Url));
-            if (exitCode != 0)
-            {
-                onError?.Invoke($"Failed to add scoop bucket: {bucket.Name}");
-                allOk = false;
-                continue;
-            }
-
-            var reCheck = await runner.RunOutputAsync(CommandBuilder.BuildScoopBucketList());
-            var reAdded = ParseScoopBucketList(reCheck);
-            if (!reAdded.Contains(bucket.Name, StringComparer.OrdinalIgnoreCase))
-            {
-                onError?.Invoke($"Scoop bucket was not added: {bucket.Name}");
-                allOk = false;
-            }
-        }
-
-        return allOk;
-    }
-
-    internal static async Task<bool> RemoveOrphanBucketsAsync(
-        List<ScoopBucket> configuredBuckets,
-        ICommandRunner runner,
-        Action<string>? onOutput = null,
-        Action<string>? onError = null)
-    {
-        var output = await runner.RunOutputAsync(CommandBuilder.BuildScoopBucketList());
-        var systemBuckets = ParseScoopBucketList(output);
-
-        var configuredNames = new HashSet<string>(
-            configuredBuckets.Select(b => b.Name), StringComparer.OrdinalIgnoreCase);
-
-        var allOk = true;
-        foreach (var bucketName in systemBuckets)
-        {
-            if (configuredNames.Contains(bucketName))
-                continue;
-
-            onOutput?.Invoke($"Removing scoop bucket: {bucketName}...");
-            var exitCode = await runner.RunAsync(CommandBuilder.BuildScoopBucketRemove(bucketName));
-            if (exitCode != 0)
-            {
-                onError?.Invoke($"Failed to remove scoop bucket: {bucketName}");
-                allOk = false;
-            }
-        }
-
-        return allOk;
-    }
-
-    internal static HashSet<string> ParseScoopBucketList(string output)
-    {
-        var buckets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (string.IsNullOrWhiteSpace(output)) return buckets;
-
-        foreach (var line in output.Split('\n'))
-        {
-            var trimmed = line.Trim();
-            if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith('-'))
-                continue;
-
-            var match = Regex.Match(trimmed, @"^(\S+)");
-            if (match.Success)
-            {
-                var name = match.Groups[1].Value;
-                if (!string.Equals(name, "Name", StringComparison.OrdinalIgnoreCase))
-                    buckets.Add(name);
-            }
-        }
-
-        return buckets;
-    }
-
-    private static bool IsEnabled(string source, NTIXOptions options) => source switch
+    internal static bool IsEnabled(string source, NTIXOptions options) => source switch
     {
         "winget" => options.Winget.Enable,
         "chocolatey" => options.Chocolatey.Enable,

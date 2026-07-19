@@ -1,5 +1,3 @@
-import({ "../../packages/winget.lua" })
-
 return {
     options = {
         winget = { enable = true, acceptAgreements = true, interactive = false },
