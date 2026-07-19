@@ -27,7 +27,7 @@ flowchart LR
 
 ### ConfigLoader
 
-Reads a Lua script and evaluates it using [LuaCSharp](https://github.com/moonsharp-devs/moonsharp). The config file must return a table with `options` and `pkgs` keys.
+Reads a Lua script and evaluates it using [LuaCSharp](https://github.com/nuskey8/Lua-CSharp). The config file must return a table with `options` and `pkgs` keys.
 
 The loader supports:
 
@@ -37,14 +37,15 @@ The loader supports:
 
 ### DiffEngine
 
-Compares the desired state (config) against the current state (installed packages + NTIX state file) to produce a `DiffResult` with four lists:
+Compares the desired state (config) against the current state (installed packages + NTIX state file) to produce a `DiffResult` with five lists:
 
-| List        | Meaning                                                        |
-| ----------- | -------------------------------------------------------------- |
-| `ToInstall` | Packages in config but not yet installed (or version mismatch) |
-| `ToUpgrade` | Unpinned packages with a newer version available               |
-| `ToSkip`    | Pinned packages already at the correct version                 |
-| `ToRemove`  | Packages tracked by NTIX but no longer in config (orphans)     |
+| List        | Meaning                                                                      |
+| ----------- | ---------------------------------------------------------------------------- |
+| `ToInstall` | Packages in config but not yet installed (or version mismatch)               |
+| `ToUpgrade` | Unpinned packages with a newer version available (only with `--upgrade`)      |
+| `ToAdopt`   | Installed packages not yet tracked by NTIX (only with `--adopt`)              |
+| `ToSkip`    | Packages already at the desired version                                      |
+| `ToRemove`  | Packages tracked by NTIX but no longer in config (orphans)                   |
 
 Before computing the diff, NTIX validates that packages exist in their respective managers. Invalid packages are removed from `ToInstall` and added to `Warnings`.
 

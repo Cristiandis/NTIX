@@ -24,7 +24,7 @@ If no path is provided, NTIX uses `~/ntix/config.lua` (creating it on first run)
 | `--no-gc`           |       | Skip orphan removal                             |
 | `--stop-on-failure` |       | Halt on first failure                           |
 
-By default, `apply` does **not** check for upgrades — it only installs missing packages, removes orphans, and enforces pinned versions. Pass `-u` to also upgrade unpinned packages.
+By default, `apply` does **not** check for upgrades - it only installs missing packages, removes orphans, and enforces pinned versions. Pass `-u` to also upgrade unpinned packages.
 
 ### What it does
 

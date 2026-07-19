@@ -60,6 +60,6 @@ Each package manager section in `pkgs` is an array of packages. Packages can be 
 
 ### Learn more
 
-* Options Reference — all available options
-* Package Lists — string vs pinned, deduplication
-* Multi-Environment — imports and environment switching
+* Options Reference - all available options
+* Package Lists - string vs pinned, deduplication
+* Multi-Environment - imports and environment switching

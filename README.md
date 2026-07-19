@@ -28,14 +28,14 @@ pkgs.scoop = { "fd", "bat" }
 return { options = options, pkgs = pkgs }
 ```
 
-3. `ntix diff config.lua` — preview what would change
-4. `ntix apply config.lua` — apply changes (requires admin)
+3. `ntix diff config.lua` - preview what would change
+4. `ntix apply config.lua` - apply changes (requires admin)
 
 ## Roadmap
 
-- **Arbitrary config files** — manage dotfiles, shell configs, and system settings declaratively (like NixOS Home Manager)
-- **Windows optional features** — enable/disable Hyper-V, OpenSSH, WSL, and other Windows features
-- **Nix-shells** — temporary environments with specific packages for your current session
+- **Arbitrary config files** - manage dotfiles, shell configs, and system settings declaratively (like NixOS Home Manager)
+- **Windows optional features** - enable/disable Hyper-V, OpenSSH, WSL, and other Windows features
+- **Nix-shells** - temporary environments with specific packages for your current session
 
 ## License
 

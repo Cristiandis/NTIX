@@ -4,7 +4,7 @@ Future features planned for NTIX.
 
 ## Arbitrary Config Files
 
-Manage dotfiles, shell configurations, and system settings declaratively — similar to NixOS Home Manager. Define the desired state of files on disk and NTIX will create or update them.
+Manage dotfiles, shell configurations, and system settings declaratively - similar to NixOS Home Manager. Define the desired state of files on disk and NTIX will create or update them.
 
 ## Optional Windows Features
 

@@ -32,7 +32,7 @@ The published binary will be in `src/NTIX.Cli/bin/Release/net10.0/win-x64/publis
 {% step %}
 ### Set up your config
 
-Just run `ntix diff` — NTIX will create a default config at `~/ntix/config.lua`:
+Just run `ntix diff` - NTIX will create a default config at `~/ntix/config.lua`:
 
 ```
 Created default config at C:\Users\you\ntix\config.lua
