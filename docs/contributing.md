@@ -13,8 +13,11 @@
 ```bash
 git clone https://github.com/Cristiandis/NTIX.git
 cd NTIX
+git checkout dev
 dotnet build
 ```
+
+All pull requests should target the `dev` branch. The `master` branch mirrors `dev` for releases.
 
 ### Run
 
