@@ -20,9 +20,9 @@ public sealed class WingetManager : IWingetManager
 
     public bool IsInstalled => _winGet.IsInstalled;
 
-    public async Task<bool> IsInstalledAsync(CancellationToken ct = default)
+    public Task<bool> IsInstalledAsync(CancellationToken ct = default)
     {
-        return await Task.FromResult(_winGet.IsInstalled);
+        return Task.FromResult(_winGet.IsInstalled);
     }
 
     public async Task<Dictionary<string, string>> GetInstalledPackagesAsync(CancellationToken ct = default)

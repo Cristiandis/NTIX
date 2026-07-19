@@ -36,7 +36,12 @@ public record ScoopOptions(
 };
 
 public record NTIXOptions(
-    WingetOptions Winget = default!,
-    ChocoOptions Chocolatey = default!,
-    ScoopOptions Scoop = default!
-);
+    WingetOptions Winget = null!,
+    ChocoOptions Chocolatey = null!,
+    ScoopOptions Scoop = null!
+)
+{
+    public WingetOptions Winget { get; init; } = Winget ?? new();
+    public ChocoOptions Chocolatey { get; init; } = Chocolatey ?? new();
+    public ScoopOptions Scoop { get; init; } = Scoop ?? new();
+};

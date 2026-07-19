@@ -17,14 +17,15 @@ public static class PackageManagerDetector
         IWingetManager? wingetManager = null)
     {
         var warnings = new List<string>();
+        options ??= new NTIXOptions();
 
-        if (options.Chocolatey.Enable && !IsChocolateyInstalled())
+        if ((options.Chocolatey?.Enable ?? false) && !IsChocolateyInstalled())
             return (false, "Chocolatey is enabled but not installed. Install from https://chocolatey.org/install", warnings);
 
-        if (options.Scoop.Enable && !IsScoopInstalled())
+        if ((options.Scoop?.Enable ?? false) && !IsScoopInstalled())
             return (false, "Scoop is enabled but not installed. Install from https://scoop.sh", warnings);
 
-        if (options.Winget.Enable)
+        if (options.Winget?.Enable ?? false)
         {
             var mgr = wingetManager ?? new WingetManager();
             if (!mgr.IsInstalled)
@@ -35,10 +36,10 @@ public static class PackageManagerDetector
             }
         }
 
-        if (config.ChocoPackages.Count > 0 && !options.Chocolatey.Enable)
+        if (config.ChocoPackages.Count > 0 && !(options.Chocolatey?.Enable ?? false))
             warnings.Add("[warn] Chocolatey packages declared but chocolatey not enabled in options");
 
-        if (config.ScoopPackages.Count > 0 && !options.Scoop.Enable)
+        if (config.ScoopPackages.Count > 0 && !(options.Scoop?.Enable ?? false))
             warnings.Add("[warn] Scoop packages declared but scoop not enabled in options");
 
         return (true, null, warnings);
@@ -55,7 +56,7 @@ public static class PackageManagerDetector
             return (false, "Chocolatey is enabled but not installed. Install from https://chocolatey.org/install", warnings);
 
         if ((options.Scoop?.Enable ?? false) && !IsScoopInstalled())
-            return (false, "Scoop is enabled but not installed. Install from https://scoop.sh (make sure to install as admin)", warnings);
+            return (false, "Scoop is enabled but not installed. Install from https://scoop.sh", warnings);
 
         if (config.ChocoPackages.Count > 0 && !(options.Chocolatey?.Enable ?? false))
             warnings.Add("[warn] Chocolatey packages declared but chocolatey not enabled in options");

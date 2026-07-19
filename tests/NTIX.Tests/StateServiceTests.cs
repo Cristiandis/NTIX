@@ -132,7 +132,7 @@ public class StateServiceTests
     }
 
     [Fact]
-    public void SaveState_ExhaustsRetries_ThrowsOnLastAttempt()
+    public void SaveState_ExhaustsRetries_ReturnsFalse()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"ntix_test_{Guid.NewGuid()}");
         Directory.CreateDirectory(tempDir);
@@ -147,8 +147,8 @@ public class StateServiceTests
                 Winget = new Dictionary<string, string> { { "pkg1", "1.0" } }
             };
 
-            var act = () => StateService.SaveState(state, stateFilePath, maxRetries: 2);
-            act.Should().Throw<Exception>();
+            var result = StateService.SaveState(state, stateFilePath, maxRetries: 2);
+            result.Should().BeFalse();
         }
         finally
         {

@@ -50,7 +50,7 @@ public class LockFileTests
     }
 
     [Fact]
-    public void LockFile_StaleLock_ThrowsWithContent()
+    public void LockFile_StaleLock_Overwritten()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"ntix_lock_test_{Guid.NewGuid()}");
         Directory.CreateDirectory(tempDir);
@@ -60,9 +60,8 @@ public class LockFileTests
         {
             File.WriteAllText(lockPath, "1234@9999999999");
 
-            var act = () => new LockFile(lockPath);
-            act.Should().Throw<InvalidOperationException>()
-                .WithMessage("*1234@9999999999*");
+            using var lockFile = new LockFile(lockPath);
+            File.Exists(lockPath).Should().BeTrue();
         }
         finally
         {

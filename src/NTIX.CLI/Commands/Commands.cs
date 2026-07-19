@@ -52,13 +52,13 @@ public partial class ApplyCommand : ICommand
 
         DiffResult diff = null!;
         var configFileName = Path.GetFileName(ConfigPath);
-        AnsiConsole.Status()
+        await AnsiConsole.Status()
             .Spinner(Spinner.Known.Dots)
             .SpinnerStyle(Style.Parse("yellow"))
-            .Start($"[bold]{configFileName}[/]", ctx =>
+            .StartAsync($"[bold]{configFileName}[/]", async ctx =>
             {
                 var progress = new Progress<string>(s => ctx.Status($"[dim]{s}[/]"));
-                diff = DiffEngine.ComputeDiff(config, state, progress: progress);
+                diff = await DiffEngine.ComputeDiffAsync(config, state, progress: progress);
             });
 
         var tree = CommandsHelper.BuildDiffTree(configFileName, config, diff);
@@ -120,13 +120,13 @@ public partial class DiffCommand : ICommand
 
         DiffResult diff = null!;
         var configFileName = Path.GetFileName(ConfigPath);
-        AnsiConsole.Status()
+        await AnsiConsole.Status()
             .Spinner(Spinner.Known.Dots)
             .SpinnerStyle(Style.Parse("yellow"))
-            .Start($"[bold]{configFileName}[/]", ctx =>
+            .StartAsync($"[bold]{configFileName}[/]", async ctx =>
             {
                 var progress = new Progress<string>(s => ctx.Status($"[dim]{s}[/]"));
-                diff = DiffEngine.ComputeDiff(config, state, progress: progress);
+                diff = await DiffEngine.ComputeDiffAsync(config, state, progress: progress);
             });
 
         var tree = CommandsHelper.BuildDiffTree(configFileName, config, diff);

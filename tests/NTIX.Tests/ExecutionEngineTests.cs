@@ -550,4 +550,167 @@ public class ExecutionEngineTests
             if (File.Exists(tempPath)) File.Delete(tempPath);
         }
     }
+
+    [Fact]
+    public async Task ApplyDiffAsync_OnOutputCalled_ForInstall()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.InstallAsync("test-pkg", "1.0", true, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var diff = new DiffResult(
+            ToInstall: new List<PackageSpec> { new("test-pkg", "1.0", "winget") });
+        var options = new NTIXOptions(
+            new WingetOptions(Enable: true, AcceptAgreements: true, Interactive: false),
+            new ChocoOptions(),
+            new ScoopOptions());
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        var outputMessages = new List<string>();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(
+                diff, options, state, tempPath,
+                wingetManager: mockWinget.Object,
+                onOutput: msg => outputMessages.Add(msg));
+
+            result.Should().BeTrue();
+            outputMessages.Should().Contain(m => m.Contains("Installing"));
+            outputMessages.Should().Contain(m => m.Contains("test-pkg"));
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_OnErrorCalled_ForFailure()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.InstallAsync("fail-pkg", "1.0", true, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var diff = new DiffResult(
+            ToInstall: new List<PackageSpec> { new("fail-pkg", "1.0", "winget") });
+        var options = new NTIXOptions(
+            new WingetOptions(Enable: true, AcceptAgreements: true, Interactive: false),
+            new ChocoOptions(),
+            new ScoopOptions());
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        var errorMessages = new List<string>();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(
+                diff, options, state, tempPath,
+                wingetManager: mockWinget.Object,
+                onError: msg => errorMessages.Add(msg));
+
+            result.Should().BeFalse();
+            errorMessages.Should().Contain(m => m.Contains("Failed to install"));
+            errorMessages.Should().Contain(m => m.Contains("fail-pkg"));
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_OnOutputCalled_ForUpgrade()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.UpgradeAsync("test-pkg", true, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var diff = new DiffResult(
+            ToUpgrade: new List<PackageSpec> { new("test-pkg", "2.0", "winget") });
+        var options = new NTIXOptions(
+            new WingetOptions(Enable: true, AcceptAgreements: true, Interactive: false),
+            new ChocoOptions(),
+            new ScoopOptions());
+        var state = new State { Winget = new Dictionary<string, string> { { "test-pkg", "1.0" } } };
+        var tempPath = Path.GetTempFileName();
+        var outputMessages = new List<string>();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(
+                diff, options, state, tempPath,
+                wingetManager: mockWinget.Object,
+                onOutput: msg => outputMessages.Add(msg));
+
+            result.Should().BeTrue();
+            outputMessages.Should().Contain(m => m.Contains("Upgrading"));
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_OnOutputCalled_ForRemove()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.UninstallAsync("test-pkg", true, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var diff = new DiffResult(
+            ToRemove: new List<PackageSpec> { new("test-pkg", "1.0", "winget") });
+        var options = new NTIXOptions(
+            new WingetOptions(Enable: true, AcceptAgreements: true, Interactive: false),
+            new ChocoOptions(),
+            new ScoopOptions());
+        var state = new State { Winget = new Dictionary<string, string> { { "test-pkg", "1.0" } } };
+        var tempPath = Path.GetTempFileName();
+        var outputMessages = new List<string>();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(
+                diff, options, state, tempPath,
+                wingetManager: mockWinget.Object,
+                onOutput: msg => outputMessages.Add(msg));
+
+            result.Should().BeTrue();
+            outputMessages.Should().Contain(m => m.Contains("Removing"));
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_DiffHasError_OnErrorCalled()
+    {
+        var diff = new DiffResult(Error: "config error");
+        var options = new NTIXOptions(new WingetOptions(), new ChocoOptions(), new ScoopOptions());
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        var errorMessages = new List<string>();
+        try
+        {
+            File.Delete(tempPath);
+
+            var result = await ExecutionEngine.ApplyDiffAsync(
+                diff, options, state, tempPath,
+                onError: msg => errorMessages.Add(msg));
+
+            result.Should().BeFalse();
+            errorMessages.Should().Contain(m => m.Contains("config error"));
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
 }

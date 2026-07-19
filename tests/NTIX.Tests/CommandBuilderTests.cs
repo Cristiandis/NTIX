@@ -261,4 +261,35 @@ public class CommandBuilderTests
         var cmd = CommandBuilder.BuildScoopBucketList();
         cmd.Should().Be("scoop bucket list");
     }
+
+    [Fact]
+    public void SanitizeId_ValidIds_PassThrough()
+    {
+        CommandBuilder.SanitizeId("test").Should().Be("test");
+        CommandBuilder.SanitizeId("my-package").Should().Be("my-package");
+        CommandBuilder.SanitizeId("nodejs").Should().Be("nodejs");
+        CommandBuilder.SanitizeId("Package.Name").Should().Be("Package.Name");
+        CommandBuilder.SanitizeId("some_pkg").Should().Be("some_pkg");
+    }
+
+    [Fact]
+    public void SanitizeId_EmptyId_Throws()
+    {
+        Action act = () => CommandBuilder.SanitizeId("");
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void SanitizeId_SpecialChars_Throws()
+    {
+        Action act = () => CommandBuilder.SanitizeId("pkg; rm -rf /");
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void SanitizeId_PipeChars_Throws()
+    {
+        Action act = () => CommandBuilder.SanitizeId("pkg|cat /etc/passwd");
+        act.Should().Throw<ArgumentException>();
+    }
 }

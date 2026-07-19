@@ -5,7 +5,7 @@ namespace NTIX.Core.Diff;
 
 public static class DiffEngine
 {
-    public static DiffResult ComputeDiff(
+    public static async Task<DiffResult> ComputeDiffAsync(
         NTIXConfig config,
         State state,
         InstalledPackages? installed = null,
@@ -14,7 +14,7 @@ public static class DiffEngine
         IProgress<string>? progress = null)
     {
         progress?.Report("Checking package managers...");
-        var (valid, error, warnings) = PackageManagerDetector.ValidateManagers(config.Options, config);
+        var (valid, error, warnings) = await PackageManagerDetector.ValidateManagersAsync(config.Options, config, wingetManager);
         if (!valid)
         {
             return new DiffResult(
@@ -31,7 +31,7 @@ public static class DiffEngine
         result.Warnings.AddRange(warnings);
 
         progress?.Report("Discovering installed packages...");
-        var installedPkgs = installed ?? PackageManagerDetector.GetInstalledPackages();
+        var installedPkgs = installed ?? await PackageManagerDetector.GetInstalledPackagesAsync();
 
         var wingetInstalled = new HashSet<string>(installedPkgs.Winget.Keys, StringComparer.OrdinalIgnoreCase);
         var chocoInstalled = new HashSet<string>(installedPkgs.Chocolatey.Keys, StringComparer.OrdinalIgnoreCase);
@@ -47,7 +47,7 @@ public static class DiffEngine
 
         progress?.Report("Checking for updates...");
         var wingetUpgradable = (hasWingetUnpinned && wingetEnabled)
-            ? PackageManagerDetector.GetWingetUpgradablePackages(() => wingetManager ?? new WingetManager())
+            ? await PackageManagerDetector.GetWingetUpgradablePackagesAsync(() => wingetManager ?? new WingetManager())
             : new Dictionary<string, UpgradeInfo>();
         var chocoUpgradable = (hasChocoUnpinned && chocoEnabled)
             ? PackageManagerDetector.GetChocoUpgradablePackages()
@@ -63,7 +63,7 @@ public static class DiffEngine
         if (validatePackages)
         {
             progress?.Report("Validating packages...");
-            ValidatePackageAvailability(result, wingetManager, wingetEnabled, chocoEnabled, scoopEnabled);
+            await ValidatePackageAvailabilityAsync(result, wingetManager, wingetEnabled, chocoEnabled, scoopEnabled);
         }
 
         progress?.Report("Finding orphans...");
@@ -142,7 +142,7 @@ public static class DiffEngine
         }
     }
 
-    private static void ValidatePackageAvailability(
+    private static async Task ValidatePackageAvailabilityAsync(
         DiffResult result,
         IWingetManager? wingetManager,
         bool wingetEnabled,
@@ -162,7 +162,7 @@ public static class DiffEngine
             {
                 try
                 {
-                    if (!mgr.PackageExistsAsync(pkg.Id).GetAwaiter().GetResult())
+                    if (!await mgr.PackageExistsAsync(pkg.Id))
                     {
                         result.Warnings.Add($"Package not found in winget: {pkg.Id}");
                         invalid.Add(pkg);

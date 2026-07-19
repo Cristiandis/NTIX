@@ -18,32 +18,6 @@ public class LockFile : IDisposable
         var dir = Path.GetDirectoryName(_lockPath)!;
         Directory.CreateDirectory(dir);
 
-        if (File.Exists(_lockPath))
-        {
-            // Check if file is locked by another process
-            try
-            {
-                // Try to open with FileShare.None to see if we can get exclusive access
-                using var checkStream = File.Open(_lockPath, FileMode.Open, FileAccess.Read, FileShare.None);
-                // If we got here, file is not locked - read content to check if it's a stale lock
-                using var reader = new StreamReader(checkStream);
-                var content = reader.ReadToEnd().Trim();
-                if (!string.IsNullOrEmpty(content))
-                {
-                    throw new InvalidOperationException(
-                        $"Another ntix apply is running (lock: {content}). " +
-                        $"If this is stale, delete {_lockPath}");
-                }
-            }
-            catch (IOException)
-            {
-                // File is locked by another process
-                throw new InvalidOperationException(
-                    $"Another ntix apply is running (lock file is locked). " +
-                    $"If this is stale, delete {_lockPath}");
-            }
-        }
-
         try
         {
             _lockStream = File.Open(_lockPath, FileMode.Create, FileAccess.Write, FileShare.None);
@@ -54,7 +28,9 @@ public class LockFile : IDisposable
         }
         catch (IOException ex)
         {
-            throw new InvalidOperationException($"Failed to create lock file: {ex.Message}", ex);
+            throw new InvalidOperationException(
+                $"Another ntix apply is running (lock file is locked). " +
+                $"If this is stale, delete {_lockPath}", ex);
         }
     }
 
