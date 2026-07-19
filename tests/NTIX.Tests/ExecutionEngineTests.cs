@@ -8,6 +8,7 @@ using Moq;
 using NTIX.Core.Models;
 using NTIX.Core.PackageManager;
 using NTIX.Core.Execution;
+using NTIX.Core.Diff;
 using NTIX.Core.StateManagement;
 
 namespace NTIX.Tests;
@@ -1110,125 +1111,11 @@ public class ExecutionEngineTests
     }
 
     [Fact]
-    public async Task ApplyDiffAsync_ScoopBuckets_AddFails_ReportsError()
+    public async Task ApplyDiffAsync_ScoopBuckets_AddSuccess_RecordsInState()
     {
-        var runner = new MockCommandRunner
-        {
-            RunAsyncHandler = cmd => cmd.Contains("scoop bucket add") ? 1 : 0,
-            OutputResponses = { ["scoop bucket list"] = "" }
-        };
+        var runner = new MockCommandRunner();
         var diff = new DiffResult(
-            ToInstall: new List<PackageSpec> { new("scoop-pkg", "1.0", "scoop") });
-        var options = new NTIXOptions(
-            new WingetOptions(),
-            new ChocoOptions(),
-            new ScoopOptions(Enable: true, Buckets: new List<ScoopBucket> { new("main") }));
-        var state = new State();
-        var tempPath = Path.GetTempFileName();
-        var errorMessages = new List<string>();
-        try
-        {
-            File.Delete(tempPath);
-            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, runner: runner, onError: msg => errorMessages.Add(msg));
-            result.Should().BeFalse();
-            errorMessages.Should().Contain(m => m.Contains("Failed to add scoop bucket"));
-        }
-        finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
-    }
-
-    [Fact]
-    public async Task ApplyDiffAsync_ScoopBuckets_AddedButNotRecheck_ReportsError()
-    {
-        var runner = new MockCommandRunner
-        {
-            RunAsyncHandler = cmd => 0,
-            OutputResponses =
-            {
-                ["scoop bucket list"] = ""
-            }
-        };
-        var diff = new DiffResult(
-            ToInstall: new List<PackageSpec> { new("scoop-pkg", "1.0", "scoop") });
-        var options = new NTIXOptions(
-            new WingetOptions(),
-            new ChocoOptions(),
-            new ScoopOptions(Enable: true, Buckets: new List<ScoopBucket> { new("main") }));
-        var state = new State();
-        var tempPath = Path.GetTempFileName();
-        var errorMessages = new List<string>();
-        try
-        {
-            File.Delete(tempPath);
-            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, runner: runner, onError: msg => errorMessages.Add(msg));
-            result.Should().BeFalse();
-            errorMessages.Should().Contain(m => m.Contains("Scoop bucket was not added"));
-        }
-        finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
-    }
-
-    [Fact]
-    public async Task ApplyDiffAsync_ScoopBuckets_RemoveOrphans()
-    {
-        var runner = new MockCommandRunner
-        {
-            OutputResponses = { ["scoop bucket list"] = "main\nextras\nversions\n" }
-        };
-        var diff = new DiffResult();
-        var options = new NTIXOptions(
-            new WingetOptions(),
-            new ChocoOptions(),
-            new ScoopOptions(Enable: true, Buckets: new List<ScoopBucket> { new("main") }));
-        var state = new State();
-        var tempPath = Path.GetTempFileName();
-        var outputMessages = new List<string>();
-        try
-        {
-            File.Delete(tempPath);
-            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, runner: runner, onOutput: msg => outputMessages.Add(msg));
-            result.Should().BeTrue();
-            runner.CapturedCommands.Should().Contain(c => c.Contains("scoop bucket rm extras"));
-            runner.CapturedCommands.Should().Contain(c => c.Contains("scoop bucket rm versions"));
-            runner.CapturedCommands.Should().NotContain(c => c.Contains("scoop bucket rm main"));
-            outputMessages.Should().Contain(m => m.Contains("Removing scoop bucket: extras"));
-            outputMessages.Should().Contain(m => m.Contains("Removing scoop bucket: versions"));
-        }
-        finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
-    }
-
-    [Fact]
-    public async Task ApplyDiffAsync_ScoopBuckets_RemoveFails_ReportsError()
-    {
-        var runner = new MockCommandRunner
-        {
-            RunAsyncHandler = cmd => cmd.Contains("scoop bucket rm") ? 1 : 0,
-            OutputResponses = { ["scoop bucket list"] = "main\nextras\n" }
-        };
-        var diff = new DiffResult();
-        var options = new NTIXOptions(
-            new WingetOptions(),
-            new ChocoOptions(),
-            new ScoopOptions(Enable: true, Buckets: new List<ScoopBucket> { new("main") }));
-        var state = new State();
-        var tempPath = Path.GetTempFileName();
-        var errorMessages = new List<string>();
-        try
-        {
-            File.Delete(tempPath);
-            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, runner: runner, onError: msg => errorMessages.Add(msg));
-            result.Should().BeFalse();
-            errorMessages.Should().Contain(m => m.Contains("Failed to remove scoop bucket: extras"));
-        }
-        finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
-    }
-
-    [Fact]
-    public async Task ApplyDiffAsync_ScoopBuckets_HeaderLineNotRemoved()
-    {
-        var runner = new MockCommandRunner
-        {
-            OutputResponses = { ["scoop bucket list"] = "Name   Source\n----   ------\nmain   https://example.com\nextras https://example.com\n" }
-        };
-        var diff = new DiffResult();
+            BucketsToAdd: new List<ScoopBucket> { new("extras") });
         var options = new NTIXOptions(
             new WingetOptions(),
             new ChocoOptions(),
@@ -1241,9 +1128,162 @@ public class ExecutionEngineTests
             File.Delete(tempPath);
             var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, runner: runner, onOutput: msg => outputMessages.Add(msg));
             result.Should().BeTrue();
-            runner.CapturedCommands.Should().NotContain(c => c.Contains("scoop bucket rm"));
-            outputMessages.Should().NotContain(m => m.Contains("Removing scoop bucket: Name"));
+            runner.CapturedCommands.Should().Contain(c => c.Contains("scoop bucket add extras"));
+            state.ScoopBuckets.Should().ContainKey("extras");
+            outputMessages.Should().Contain(m => m.Contains("Adding scoop bucket: extras"));
         }
         finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_ScoopBuckets_AddFails_ReportsError()
+    {
+        var runner = new MockCommandRunner
+        {
+            RunAsyncHandler = cmd => cmd.Contains("scoop bucket add") ? 1 : 0
+        };
+        var diff = new DiffResult(
+            BucketsToAdd: new List<ScoopBucket> { new("extras") });
+        var options = new NTIXOptions(
+            new WingetOptions(),
+            new ChocoOptions(),
+            new ScoopOptions(Enable: true, Buckets: new List<ScoopBucket> { new("main"), new("extras") }));
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        var errorMessages = new List<string>();
+        try
+        {
+            File.Delete(tempPath);
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, runner: runner, onError: msg => errorMessages.Add(msg));
+            result.Should().BeFalse();
+            errorMessages.Should().Contain(m => m.Contains("Failed to add scoop bucket: extras"));
+            state.ScoopBuckets.Should().NotContainKey("extras");
+        }
+        finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_ScoopBuckets_RemoveOrphans()
+    {
+        var runner = new MockCommandRunner();
+        var diff = new DiffResult(
+            BucketsToRemove: new List<ScoopBucket> { new("extras"), new("versions") });
+        var options = new NTIXOptions(
+            new WingetOptions(),
+            new ChocoOptions(),
+            new ScoopOptions(Enable: true, Buckets: new List<ScoopBucket> { new("main") }));
+        var state = new State(ScoopBuckets: new Dictionary<string, string?> { ["extras"] = null, ["versions"] = null });
+        var tempPath = Path.GetTempFileName();
+        var outputMessages = new List<string>();
+        try
+        {
+            File.Delete(tempPath);
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, runner: runner, onOutput: msg => outputMessages.Add(msg));
+            result.Should().BeTrue();
+            runner.CapturedCommands.Should().Contain(c => c.Contains("scoop bucket rm extras"));
+            runner.CapturedCommands.Should().Contain(c => c.Contains("scoop bucket rm versions"));
+            state.ScoopBuckets.Should().NotContainKey("extras");
+            state.ScoopBuckets.Should().NotContainKey("versions");
+            outputMessages.Should().Contain(m => m.Contains("Removing scoop bucket: extras"));
+            outputMessages.Should().Contain(m => m.Contains("Removing scoop bucket: versions"));
+        }
+        finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
+    }
+
+    [Fact]
+    public async Task ApplyDiffAsync_ScoopBuckets_RemoveFails_ReportsError()
+    {
+        var runner = new MockCommandRunner
+        {
+            RunAsyncHandler = cmd => cmd.Contains("scoop bucket rm") ? 1 : 0
+        };
+        var diff = new DiffResult(
+            BucketsToRemove: new List<ScoopBucket> { new("extras") });
+        var options = new NTIXOptions(
+            new WingetOptions(),
+            new ChocoOptions(),
+            new ScoopOptions(Enable: true, Buckets: new List<ScoopBucket> { new("main") }));
+        var state = new State(ScoopBuckets: new Dictionary<string, string?> { ["extras"] = null });
+        var tempPath = Path.GetTempFileName();
+        var errorMessages = new List<string>();
+        try
+        {
+            File.Delete(tempPath);
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, runner: runner, onError: msg => errorMessages.Add(msg));
+            result.Should().BeFalse();
+            errorMessages.Should().Contain(m => m.Contains("Failed to remove scoop bucket: extras"));
+            state.ScoopBuckets.Should().ContainKey("extras");
+        }
+        finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
+    }
+
+    [Fact]
+    public async Task ComputeBucketDiffAsync_AddsMissingBuckets()
+    {
+        var runner = new MockCommandRunner
+        {
+            OutputResponses = { ["scoop bucket list"] = "main\n" }
+        };
+        var result = new DiffResult();
+        var configBuckets = new List<ScoopBucket> { new("main"), new("extras") };
+        var stateBuckets = new Dictionary<string, string?>();
+
+        await DiffEngine.ComputeBucketDiffAsync(result, configBuckets, stateBuckets, runner);
+
+        result.BucketsToAdd.Should().HaveCount(1);
+        result.BucketsToAdd[0].Name.Should().Be("extras");
+        result.BucketsToRemove.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ComputeBucketDiffAsync_RemovesStateTrackedOrphans()
+    {
+        var runner = new MockCommandRunner
+        {
+            OutputResponses = { ["scoop bucket list"] = "main\nextras\n" }
+        };
+        var result = new DiffResult();
+        var configBuckets = new List<ScoopBucket> { new("main"), new("extras") };
+        var stateBuckets = new Dictionary<string, string?> { ["versions"] = null };
+
+        await DiffEngine.ComputeBucketDiffAsync(result, configBuckets, stateBuckets, runner);
+
+        result.BucketsToAdd.Should().BeEmpty();
+        result.BucketsToRemove.Should().HaveCount(1);
+        result.BucketsToRemove[0].Name.Should().Be("versions");
+    }
+
+    [Fact]
+    public async Task ComputeBucketDiffAsync_DoesNotRemoveUserAddedBuckets()
+    {
+        var runner = new MockCommandRunner
+        {
+            OutputResponses = { ["scoop bucket list"] = "main\nextras\nversions\n" }
+        };
+        var result = new DiffResult();
+        var configBuckets = new List<ScoopBucket> { new("main") };
+        var stateBuckets = new Dictionary<string, string?>();
+
+        await DiffEngine.ComputeBucketDiffAsync(result, configBuckets, stateBuckets, runner);
+
+        result.BucketsToAdd.Should().BeEmpty();
+        result.BucketsToRemove.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ComputeBucketDiffAsync_SkipsHeaderLine()
+    {
+        var runner = new MockCommandRunner
+        {
+            OutputResponses = { ["scoop bucket list"] = "Name   Source\n----   ------\nmain   https://example.com\n" }
+        };
+        var result = new DiffResult();
+        var configBuckets = new List<ScoopBucket> { new("main") };
+        var stateBuckets = new Dictionary<string, string?>();
+
+        await DiffEngine.ComputeBucketDiffAsync(result, configBuckets, stateBuckets, runner);
+
+        result.BucketsToAdd.Should().BeEmpty();
+        result.BucketsToRemove.Should().BeEmpty();
     }
 }

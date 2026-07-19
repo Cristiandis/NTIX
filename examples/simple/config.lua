@@ -9,7 +9,7 @@ local options = {
 	},
 	scoop = {
 		enable = true,
-		buckets = { "main", "extras", "versions" }
+		buckets = { "extras", "versions" }
 	}
 }
 

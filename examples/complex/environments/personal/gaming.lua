@@ -1,5 +1,3 @@
-import({ "../../packages/scoop.lua", "../../packages/chocolatey.lua", "../../packages/winget.lua" })
-
 return {
     options = {
         winget = {
@@ -10,7 +8,7 @@ return {
         chocolatey = { enable = true, yes = true },
         scoop = {
             enable = true,
-            buckets = { "main", "extras", "versions", "nerd-fonts", "games" },
+            buckets = { "extras", "versions", "nerd-fonts", "games" },
         },
     },
     pkgs = {
