@@ -6,7 +6,7 @@ Future features planned for NTIX.
 
 Manage dotfiles, shell configurations, and system settings declaratively — similar to NixOS Home Manager. Define the desired state of files on disk and NTIX will create or update them.
 
-## Windows Optional Features
+## Optional Windows Features
 
 Enable and disable Windows optional features like Hyper-V, OpenSSH Server, WSL, and .NET Framework directly from your config:
 
