@@ -17,7 +17,7 @@ If no path is provided, NTIX uses `~/ntix/config.lua` (creating it on first run)
 | Flag          | Short | Description                                      |
 | ------------- | ----- | ------------------------------------------------ |
 | `--upgrade`   | `-u`  | Check for and show available upgrades            |
-| `--adopt`     |       | Show packages that would be adopted into state   |
+| `--adopt`     | `-a`  | Show packages that would be adopted into state   |
 
 By default, `diff` does **not** check for upgrades - it only shows installs, removals, and packages already at the desired version. Pass `-u` to include upgrade detection.
 

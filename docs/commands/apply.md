@@ -20,7 +20,7 @@ If no path is provided, NTIX uses `~/ntix/config.lua` (creating it on first run)
 | ------------------- | ----- | ------------------------------------------------ |
 | `--dry-run`         | `-d`  | Preview without applying                        |
 | `--upgrade`         | `-u`  | Check for and apply available upgrades           |
-| `--adopt`           |       | Adopt already-installed packages into NTIX state |
+| `--adopt`           | `-a`  | Adopt already-installed packages into NTIX state |
 | `--no-gc`           |       | Skip orphan removal                             |
 | `--stop-on-failure` |       | Halt on first failure                           |
 
