@@ -31,7 +31,7 @@ dotnet run --project src/NTIX.Cli -- diff examples/simple/config.lua
 dotnet test
 ```
 
-The test suite has 220 tests covering config loading, diff computation, execution, state management, locking, and command building.
+The test suite has 223 tests covering config loading, diff computation, execution, state management, locking, and command building.
 
 ### Project structure
 

@@ -62,7 +62,8 @@ public record State(
     int Version = 1,
     Dictionary<string, string>? Winget = null,
     Dictionary<string, string>? Chocolatey = null,
-    Dictionary<string, string>? Scoop = null
+    Dictionary<string, string>? Scoop = null,
+    Dictionary<string, string?>? ScoopBuckets = null
 );
 ```
 
@@ -72,6 +73,7 @@ public record State(
 | `Winget` | `Dictionary<string, string>` | `new()` | Tracked winget packages |
 | `Chocolatey` | `Dictionary<string, string>` | `new()` | Tracked chocolatey packages |
 | `Scoop` | `Dictionary<string, string>` | `new()` | Tracked scoop packages |
+| `ScoopBuckets` | `Dictionary<string, string?>` | `new()` | Scoop buckets added by NTIX (name → URL) |
 
 ### DiffResult
 
@@ -84,6 +86,8 @@ public record DiffResult(
     List<PackageSpec> ToSkip = default!,
     List<PackageSpec> ToRemove = default!,
     List<PackageSpec> ToAdopt = default!,
+    List<ScoopBucket> BucketsToAdd = default!,
+    List<ScoopBucket> BucketsToRemove = default!,
     string? Error = null,
     List<string>? Warnings = null
 );
@@ -96,9 +100,11 @@ public record DiffResult(
 | `ToSkip` | `List<PackageSpec>` | Packages already at desired state |
 | `ToRemove` | `List<PackageSpec>` | Orphaned packages to remove |
 | `ToAdopt` | `List<PackageSpec>` | External installs to adopt into state |
+| `BucketsToAdd` | `List<ScoopBucket>` | Scoop buckets to add |
+| `BucketsToRemove` | `List<ScoopBucket>` | NTIX-tracked scoop buckets to remove |
 | `Error` | `string?` | Fatal error, if any |
 | `Warnings` | `List<string>` | Non-fatal warnings |
-| **`IsEmpty`** | `bool` | True if all five action lists are empty |
+| **`IsEmpty`** | `bool` | True if all action lists are empty |
 | **`HasError`** | `bool` | True if `Error` is non-empty |
 
 ### ImportNode
