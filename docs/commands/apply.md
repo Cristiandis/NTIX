@@ -16,18 +16,23 @@ If no path is provided, NTIX uses `~/ntix/config.lua` (creating it on first run)
 
 ### Options
 
-| Flag                | Short | Description              |
-| ------------------- | ----- | ------------------------ |
-| `--dry-run`         | `-d`  | Preview without applying |
-| `--no-gc`           |       | Skip orphan removal      |
-| `--stop-on-failure` |       | Halt on first failure    |
+| Flag                | Short | Description                                      |
+| ------------------- | ----- | ------------------------------------------------ |
+| `--dry-run`         | `-d`  | Preview without applying                        |
+| `--upgrade`         | `-u`  | Check for and apply available upgrades           |
+| `--adopt`           |       | Adopt already-installed packages into NTIX state |
+| `--no-gc`           |       | Skip orphan removal                             |
+| `--stop-on-failure` |       | Halt on first failure                           |
+
+By default, `apply` does **not** check for upgrades — it only installs missing packages, removes orphans, and enforces pinned versions. Pass `-u` to also upgrade unpinned packages.
 
 ### What it does
 
 1. Loads config
 2. Computes diff
 3. Acquires lock file
-4. Installs, upgrades, and removes packages
-5. Updates state file after each operation
+4. Installs packages, adopts packages, and removes orphans
+5. Upgrades packages (only with `-u`)
+6. Updates state file after each operation
 
 Orphaned packages are removed automatically. Use `--no-gc` to skip.
