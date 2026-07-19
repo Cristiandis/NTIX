@@ -140,7 +140,8 @@ public class ModelTests
     {
         var opts = new WingetOptions(AcceptAgreements: true);
         var cmd = CommandBuilder.BuildWingetUninstall("Git.Git", opts);
-        cmd.Should().Contain("--accept-source-agreements --accept-package-agreements");
+        cmd.Should().Contain("--accept-source-agreements");
+        cmd.Should().NotContain("--accept-package-agreements");
     }
 
     [Fact]

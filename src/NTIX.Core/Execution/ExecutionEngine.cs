@@ -227,7 +227,11 @@ public static class ExecutionEngine
 
             var match = Regex.Match(trimmed, @"^(\S+)");
             if (match.Success)
-                buckets.Add(match.Groups[1].Value);
+            {
+                var name = match.Groups[1].Value;
+                if (!string.Equals(name, "Name", StringComparison.OrdinalIgnoreCase))
+                    buckets.Add(name);
+            }
         }
 
         return buckets;

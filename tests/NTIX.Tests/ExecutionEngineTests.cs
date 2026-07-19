@@ -1220,4 +1220,30 @@ public class ExecutionEngineTests
         }
         finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
     }
+
+    [Fact]
+    public async Task ApplyDiffAsync_ScoopBuckets_HeaderLineNotRemoved()
+    {
+        var runner = new MockCommandRunner
+        {
+            OutputResponses = { ["scoop bucket list"] = "Name   Source\n----   ------\nmain   https://example.com\nextras https://example.com\n" }
+        };
+        var diff = new DiffResult();
+        var options = new NTIXOptions(
+            new WingetOptions(),
+            new ChocoOptions(),
+            new ScoopOptions(Enable: true, Buckets: new List<ScoopBucket> { new("main"), new("extras") }));
+        var state = new State();
+        var tempPath = Path.GetTempFileName();
+        var outputMessages = new List<string>();
+        try
+        {
+            File.Delete(tempPath);
+            var result = await ExecutionEngine.ApplyDiffAsync(diff, options, state, tempPath, runner: runner, onOutput: msg => outputMessages.Add(msg));
+            result.Should().BeTrue();
+            runner.CapturedCommands.Should().NotContain(c => c.Contains("scoop bucket rm"));
+            outputMessages.Should().NotContain(m => m.Contains("Removing scoop bucket: Name"));
+        }
+        finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
+    }
 }

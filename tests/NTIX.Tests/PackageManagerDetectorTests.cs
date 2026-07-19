@@ -339,4 +339,66 @@ public class PackageManagerDetectorTests
         result["rg"].CurrentVersion.Should().Be("13.0.0");
         result["rg"].AvailableVersion.Should().Be("14.0.3");
     }
+
+    [Fact]
+    public async Task GetInstalledPackagesAsync_ChocoTwoFieldFormat_Detected()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string>());
+
+        var runner = new MockCommandRunner
+        {
+            OutputResponses =
+            {
+                ["choco list"] = "ripgrep|14.1.0\nfd|10.4.2\n"
+            }
+        };
+
+        var result = await PackageManagerDetector.GetInstalledPackagesAsync(() => mockWinget.Object, runner);
+
+        result.Chocolatey.Should().ContainKey("ripgrep").WhoseValue.Should().Be("14.1.0");
+        result.Chocolatey.Should().ContainKey("fd").WhoseValue.Should().Be("10.4.2");
+    }
+
+    [Fact]
+    public async Task GetInstalledPackagesAsync_ScoopTableFormat_Detected()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string>());
+
+        var runner = new MockCommandRunner
+        {
+            OutputResponses =
+            {
+                ["scoop list"] = "Installed apps matching '':\n\nName    Version   Source\n----    -------   ------\nripgrep 15.2.0    main\nfd      10.4.2    main\n"
+            }
+        };
+
+        var result = await PackageManagerDetector.GetInstalledPackagesAsync(() => mockWinget.Object, runner);
+
+        result.Scoop.Should().ContainKey("ripgrep").WhoseValue.Should().Be("15.2.0");
+        result.Scoop.Should().ContainKey("fd").WhoseValue.Should().Be("10.4.2");
+    }
+
+    [Fact]
+    public async Task GetInstalledPackagesAsync_ScoopEmpty_ReturnsEmpty()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string>());
+
+        var runner = new MockCommandRunner
+        {
+            OutputResponses =
+            {
+                ["scoop list"] = "There aren't any apps installed."
+            }
+        };
+
+        var result = await PackageManagerDetector.GetInstalledPackagesAsync(() => mockWinget.Object, runner);
+
+        result.Scoop.Should().BeEmpty();
+    }
 }
