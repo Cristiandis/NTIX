@@ -28,7 +28,7 @@ public partial class ApplyCommand : ICommand
     [CommandOption("stop-on-failure", Description = "Stop on first package failure instead of continuing")]
     public bool StopOnFailure { get; set; }
 
-    [CommandOption("adopt", Description = "Adopt already-installed packages into NTIX state")]
+    [CommandOption("adopt", 'a', Description = "Adopt already-installed packages into NTIX state")]
     public bool Adopt { get; set; }
 
     [CommandOption("upgrade", 'u', Description = "Check for and apply available upgrades")]
@@ -111,7 +111,7 @@ public partial class DiffCommand : ICommand
     [CommandParameter(0, Name = "config-path", Description = "Path to configuration file (default: ~/ntix/config.lua)")]
     public string? ConfigPath { get; set; }
 
-    [CommandOption("adopt", Description = "Show packages that would be adopted")]
+    [CommandOption("adopt", 'a', Description = "Show packages that would be adopted")]
     public bool Adopt { get; set; }
 
     [CommandOption("upgrade", 'u', Description = "Check for and apply available upgrades")]
