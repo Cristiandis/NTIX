@@ -461,4 +461,48 @@ public class DiffEngineTests
 
         diff.Warnings.Should().Contain(w => w.Contains("Scoop packages declared but scoop not enabled"));
     }
+
+    [Fact]
+    public async Task ComputeDiff_KnownPackage_SkipsValidation()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.IsInstalled).Returns(true);
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string>());
+        mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(), new ScoopOptions()),
+            WingetPackages: new List<PackageEntry> { new("known-pkg", null) });
+        var state = new State { Winget = new Dictionary<string, string> { { "known-pkg", "1.0" } } };
+
+        var diff = await DiffEngine.ComputeDiffAsync(config, state, new InstalledPackages(), mockWinget.Object);
+
+        diff.ToInstall.Should().HaveCount(1);
+        mockWinget.Verify(m => m.PackageExistsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ComputeDiff_NewPackage_Validates()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.IsInstalled).Returns(true);
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string>());
+        mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+        mockWinget.Setup(m => m.PackageExistsAsync("new-pkg", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(), new ScoopOptions()),
+            WingetPackages: new List<PackageEntry> { new("new-pkg", null) });
+        var state = new State();
+
+        var diff = await DiffEngine.ComputeDiffAsync(config, state, new InstalledPackages(), mockWinget.Object);
+
+        diff.ToInstall.Should().HaveCount(1);
+        mockWinget.Verify(m => m.PackageExistsAsync("new-pkg", It.IsAny<CancellationToken>()), Times.Once);
+    }
 }

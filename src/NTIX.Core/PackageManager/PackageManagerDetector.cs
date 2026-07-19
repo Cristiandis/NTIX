@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Text.Json;
+using System.Threading.Tasks;
 using NTIX.Core.Models;
 
 namespace NTIX.Core.PackageManager;
@@ -193,6 +195,54 @@ public static class PackageManagerDetector
         if (string.IsNullOrEmpty(output)) return false;
         var pattern = new Regex(@"^\s*Name\s*:", RegexOptions.Multiline | RegexOptions.IgnoreCase);
         return pattern.IsMatch(output);
+    }
+
+    public static async Task<Dictionary<string, bool?>> ValidateWingetPackagesExistsAsync(
+        IEnumerable<string> ids, IWingetManager? wingetManager = null, CancellationToken ct = default)
+    {
+        var mgr = wingetManager ?? new WingetManager();
+        var tasks = ids.Select(async id =>
+        {
+            try
+            {
+                var exists = await mgr.PackageExistsAsync(id, ct);
+                return (Id: id, Exists: (bool?)exists);
+            }
+            catch
+            {
+                return (Id: id, Exists: (bool?)null);
+            }
+        });
+        var results = await Task.WhenAll(tasks);
+        return results.ToDictionary(r => r.Id, r => r.Exists);
+    }
+
+    public static async Task<Dictionary<string, bool>> ValidateChocoPackagesExistsAsync(
+        IEnumerable<string> ids, CancellationToken ct = default)
+    {
+        var result = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        await Parallel.ForEachAsync(ids, ct, async (id, token) =>
+        {
+            await Task.Run(() =>
+            {
+                result[id] = ValidateChocoPackageExists(id);
+            }, token);
+        });
+        return result;
+    }
+
+    public static async Task<Dictionary<string, bool>> ValidateScoopPackagesExistsAsync(
+        IEnumerable<string> ids, CancellationToken ct = default)
+    {
+        var result = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        await Parallel.ForEachAsync(ids, ct, async (id, token) =>
+        {
+            await Task.Run(() =>
+            {
+                result[id] = ValidateScoopPackageExists(id);
+            }, token);
+        });
+        return result;
     }
 
     internal static string? RunProcess(string cmd, bool redirectStderr = false)

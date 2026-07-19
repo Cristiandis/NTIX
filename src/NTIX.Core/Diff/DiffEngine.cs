@@ -63,7 +63,7 @@ public static class DiffEngine
         if (validatePackages)
         {
             progress?.Report("Validating packages...");
-            await ValidatePackageAvailabilityAsync(result, wingetManager, wingetEnabled, chocoEnabled, scoopEnabled);
+            await ValidatePackageAvailabilityAsync(result, state, wingetManager, wingetEnabled, chocoEnabled, scoopEnabled);
         }
 
         progress?.Report("Finding orphans...");
@@ -144,6 +144,7 @@ public static class DiffEngine
 
     private static async Task ValidatePackageAvailabilityAsync(
         DiffResult result,
+        State state,
         IWingetManager? wingetManager,
         bool wingetEnabled,
         bool chocoEnabled,
@@ -155,63 +156,90 @@ public static class DiffEngine
         var chocoPkgs = result.ToInstall.Where(p => p.Source == "chocolatey").ToList();
         var scoopPkgs = result.ToInstall.Where(p => p.Source == "scoop").ToList();
 
-        if (wingetEnabled && wingetPkgs.Count > 0)
+        var newWingetPkgs = wingetPkgs.Where(p => !state.Winget.ContainsKey(p.Id)).ToList();
+        var newChocoPkgs = chocoPkgs.Where(p => !state.Chocolatey.ContainsKey(p.Id)).ToList();
+        var newScoopPkgs = scoopPkgs.Where(p => !state.Scoop.ContainsKey(p.Id)).ToList();
+
+        var validationTasks = new List<Task>();
+
+        if (wingetEnabled && newWingetPkgs.Count > 0)
         {
-            var mgr = wingetManager ?? new WingetManager();
-            foreach (var pkg in wingetPkgs)
+            validationTasks.Add(Task.Run(async () =>
             {
-                try
+                var results = await PackageManagerDetector.ValidateWingetPackagesExistsAsync(
+                    newWingetPkgs.Select(p => p.Id), wingetManager);
+                foreach (var pkg in newWingetPkgs)
                 {
-                    if (!await mgr.PackageExistsAsync(pkg.Id))
+                    if (results.TryGetValue(pkg.Id, out var exists))
                     {
-                        result.Warnings.Add($"Package not found in winget: {pkg.Id}");
-                        invalid.Add(pkg);
+                        if (exists == false)
+                        {
+                            result.Warnings.Add($"Package not found in winget: {pkg.Id}");
+                            lock (invalid) invalid.Add(pkg);
+                        }
+                        else if (exists == null)
+                        {
+                            result.Warnings.Add($"Could not verify package in winget: {pkg.Id}");
+                        }
+                    }
+                    else
+                    {
+                        result.Warnings.Add($"Could not verify package in winget: {pkg.Id}");
                     }
                 }
-                catch
-                {
-                    result.Warnings.Add($"Could not verify package in winget: {pkg.Id}");
-                }
-            }
+            }));
         }
 
-        if (chocoEnabled && chocoPkgs.Count > 0)
+        if (chocoEnabled && newChocoPkgs.Count > 0)
         {
-            foreach (var pkg in chocoPkgs)
+            validationTasks.Add(Task.Run(async () =>
             {
-                try
+                var results = await PackageManagerDetector.ValidateChocoPackagesExistsAsync(
+                    newChocoPkgs.Select(p => p.Id));
+                foreach (var pkg in newChocoPkgs)
                 {
-                    if (!PackageManagerDetector.ValidateChocoPackageExists(pkg.Id))
+                    if (results.TryGetValue(pkg.Id, out var exists))
                     {
-                        result.Warnings.Add($"Package not found in chocolatey: {pkg.Id}");
-                        invalid.Add(pkg);
+                        if (!exists)
+                        {
+                            result.Warnings.Add($"Package not found in chocolatey: {pkg.Id}");
+                            lock (invalid) invalid.Add(pkg);
+                        }
+                    }
+                    else
+                    {
+                        result.Warnings.Add($"Could not verify package in chocolatey: {pkg.Id}");
                     }
                 }
-                catch
-                {
-                    result.Warnings.Add($"Could not verify package in chocolatey: {pkg.Id}");
-                }
-            }
+            }));
         }
 
-        if (scoopEnabled && scoopPkgs.Count > 0)
+        if (scoopEnabled && newScoopPkgs.Count > 0)
         {
-            foreach (var pkg in scoopPkgs)
+            validationTasks.Add(Task.Run(async () =>
             {
-                try
+                var results = await PackageManagerDetector.ValidateScoopPackagesExistsAsync(
+                    newScoopPkgs.Select(p => p.Id));
+                foreach (var pkg in newScoopPkgs)
                 {
-                    if (!PackageManagerDetector.ValidateScoopPackageExists(pkg.Id))
+                    if (results.TryGetValue(pkg.Id, out var exists))
                     {
-                        result.Warnings.Add($"Package not found in scoop: {pkg.Id}");
-                        invalid.Add(pkg);
+                        if (!exists)
+                        {
+                            result.Warnings.Add($"Package not found in scoop: {pkg.Id}");
+                            lock (invalid) invalid.Add(pkg);
+                        }
+                    }
+                    else
+                    {
+                        result.Warnings.Add($"Could not verify package in scoop: {pkg.Id}");
                     }
                 }
-                catch
-                {
-                    result.Warnings.Add($"Could not verify package in scoop: {pkg.Id}");
-                }
-            }
+            }));
         }
+
+        if (validationTasks.Count > 0)
+            await Task.WhenAll(validationTasks);
 
         foreach (var pkg in invalid)
             result.ToInstall.Remove(pkg);
