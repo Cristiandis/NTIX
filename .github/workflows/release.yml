@@ -43,7 +43,7 @@ jobs:
           7z a ../../../../../../ntix-${{ steps.version.outputs.VERSION }}-win-x64.zip ntix.exe
 
       - name: Compile installer
-        uses: Minionguyjpro/Inno-Setup-Action@v1
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.9
         with:
           path: installer/ntix-setup.iss
           options: /DVersion=${{ steps.version.outputs.VERSION }}
