@@ -92,7 +92,7 @@ public static class PackageManagerDetector
         var chocoOut = await RunProcessAsync(cmd, "choco list -r --local-only --limit-output 2>nul");
         if (!string.IsNullOrEmpty(chocoOut))
         {
-            var regex = new Regex(@"^([^|]+)\|([^|]+)\|.*$", RegexOptions.Multiline);
+            var regex = new Regex(@"^([^|]+)\|([^|]+)$", RegexOptions.Multiline);
             foreach (Match m in regex.Matches(chocoOut))
             {
                 var id = m.Groups[1].Value.Trim();
@@ -102,16 +102,26 @@ public static class PackageManagerDetector
             }
         }
 
-        var scoopOut = await RunProcessAsync(cmd, "scoop list --local-only --limit-output 2>nul");
+        var scoopOut = await RunProcessAsync(cmd, "scoop list 2>nul");
         if (!string.IsNullOrEmpty(scoopOut))
         {
-            var regex = new Regex(@"^([^\s]+)\s+([^\s]+)\s+.*$", RegexOptions.Multiline);
-            foreach (Match m in regex.Matches(scoopOut))
+            foreach (var line in scoopOut.Split('\n'))
             {
-                var id = m.Groups[1].Value.Trim();
-                var ver = m.Groups[2].Value.Trim();
-                if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(ver))
-                    result.Scoop[id] = ver;
+                var trimmed = line.Trim();
+                if (string.IsNullOrWhiteSpace(trimmed)
+                    || trimmed.StartsWith('-')
+                    || trimmed.StartsWith("Installed")
+                    || trimmed.StartsWith("Name")
+                    || trimmed.Contains("aren't any"))
+                    continue;
+                var parts = trimmed.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 2)
+                {
+                    var id = parts[0];
+                    var ver = parts[1];
+                    if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(ver))
+                        result.Scoop[id] = ver;
+                }
             }
         }
 

@@ -16,6 +16,8 @@ public static class ConfigLoader
 
     private const string DefaultConfigContent = """
         return {
+            -- Don't declare the same package under multiple managers.
+            -- This causes conflicts during install/uninstall.
             options = {},
             pkgs = {}
         }

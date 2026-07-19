@@ -30,7 +30,7 @@ pkgs.chocolatey = {
 }
 
 pkgs.scoop = {
-	"ripgrep",
+	"micro",
 	"fd"
 }
 

@@ -75,7 +75,7 @@ public static class CommandBuilder
     public static string BuildWingetUninstall(string id, WingetOptions opts)
     {
         var cmd = $"winget uninstall --id {SanitizeId(id)} --exact";
-        if (opts.AcceptAgreements) cmd += " --accept-source-agreements --accept-package-agreements";
+        if (opts.AcceptAgreements) cmd += " --accept-source-agreements";
         if (!opts.Interactive) cmd += " --silent";
         return cmd;
     }
