@@ -72,6 +72,63 @@ public class ModelTests
     public void ScoopOptions_DefaultBuckets()
     {
         var scoop = new ScoopOptions();
-        scoop.Buckets.Should().BeEquivalentTo(new[] { "main", "extras", "versions" });
+        scoop.Buckets.Should().HaveCount(3);
+        scoop.Buckets[0].Name.Should().Be("main");
+        scoop.Buckets[1].Name.Should().Be("extras");
+        scoop.Buckets[2].Name.Should().Be("versions");
+    }
+
+    [Fact]
+    public void DiffResult_IsEmpty_FalseWhenToAdoptNotEmpty()
+    {
+        var diff = new DiffResult(ToAdopt: new List<PackageSpec> { new("manual-pkg", "1.0", "winget") });
+        diff.IsEmpty.Should().BeFalse();
+    }
+
+    [Fact]
+    public void DiffResult_DefaultToAdopt_IsEmpty()
+    {
+        var diff = new DiffResult();
+        diff.ToAdopt.Should().BeEmpty();
+        diff.IsEmpty.Should().BeTrue();
+    }
+
+    [Fact]
+    public void DiffResult_HasError_True()
+    {
+        var diff = new DiffResult(Error: "config error");
+        diff.HasError.Should().BeTrue();
+    }
+
+    [Fact]
+    public void DiffResult_HasError_False()
+    {
+        var diff = new DiffResult();
+        diff.HasError.Should().BeFalse();
+    }
+
+    [Fact]
+    public void DiffResult_Warnings_DefaultsToEmpty()
+    {
+        var diff = new DiffResult();
+        diff.Warnings.Should().NotBeNull();
+        diff.Warnings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void InstalledPackages_DefaultsEmpty()
+    {
+        var pkg = new InstalledPackages();
+        pkg.Winget.Should().BeEmpty();
+        pkg.Chocolatey.Should().BeEmpty();
+        pkg.Scoop.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void UpgradeInfo_Properties()
+    {
+        var info = new UpgradeInfo("1.0", "2.0");
+        info.CurrentVersion.Should().Be("1.0");
+        info.AvailableVersion.Should().Be("2.0");
     }
 }

@@ -58,3 +58,6 @@ publish/
 
 # Lock files
 *.lock
+
+# Inno Setup build output
+installer/Output/

@@ -8,19 +8,40 @@ public record WingetOptions(
 
 public record ChocoOptions(
     bool Enable = false,
-    bool Yes = false
+    bool Yes = false,
+    bool Force = false,
+    bool IgnoreDependencies = false,
+    bool AllowDowngrade = false,
+    bool SkipPowerShell = false,
+    string? Params = null,
+    bool Pre = false
 );
+
+public record ScoopBucket(string Name, string? Url = null);
 
 public record ScoopOptions(
     bool Enable = false,
-    List<string> Buckets = default!
+    List<ScoopBucket> Buckets = default!,
+    bool Global = false,
+    bool Independent = false,
+    bool NoCache = false,
+    bool SkipHashCheck = false,
+    string? Arch = null
 )
 {
-    public List<string> Buckets { get; init; } = Buckets ?? new() { "main", "extras", "versions" };
+    public List<ScoopBucket> Buckets { get; init; } = Buckets ?? new()
+    {
+        new("main"), new("extras"), new("versions")
+    };
 };
 
 public record NTIXOptions(
-    WingetOptions Winget = default!,
-    ChocoOptions Chocolatey = default!,
-    ScoopOptions Scoop = default!
-);
+    WingetOptions Winget = null!,
+    ChocoOptions Chocolatey = null!,
+    ScoopOptions Scoop = null!
+)
+{
+    public WingetOptions Winget { get; init; } = Winget ?? new();
+    public ChocoOptions Chocolatey { get; init; } = Chocolatey ?? new();
+    public ScoopOptions Scoop { get; init; } = Scoop ?? new();
+};

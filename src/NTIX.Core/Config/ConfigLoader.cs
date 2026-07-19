@@ -7,6 +7,33 @@ namespace NTIX.Core.Config;
 public static class ConfigLoader
 {
     private static readonly string[] PackageListKeys = { "winget", "chocolatey", "scoop" };
+
+    private static readonly string DefaultConfigDir =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ntix");
+
+    public static readonly string DefaultConfigPath =
+        Path.Combine(DefaultConfigDir, "config.lua");
+
+    private const string DefaultConfigContent = """
+        return {
+            options = {},
+            pkgs = {}
+        }
+        """;
+
+    public static string EnsureDefaultConfig(string? configPath)
+    {
+        var path = configPath ?? DefaultConfigPath;
+
+        if (configPath is null && !File.Exists(path))
+        {
+            Directory.CreateDirectory(DefaultConfigDir);
+            File.WriteAllText(path, DefaultConfigContent);
+        }
+
+        return path;
+    }
+
     public static NTIXConfig Load(string configPath)
     {
         if (!File.Exists(configPath))
@@ -38,12 +65,14 @@ public static class ConfigLoader
         state.Environment["options"] = globalOptions;
         state.Environment["pkgs"] = globalPkgs;
 
-        RegisterImportFunction(state, fullConfigPath, globalOptions, globalPkgs);
+        var importRoot = new ImportNode(Path.GetFileName(configPath));
+        RegisterImportFunction(state, fullConfigPath, globalOptions, globalPkgs, importRoot);
 
         try
         {
             var results = state.DoStringAsync(luaScript).GetAwaiter().GetResult();
-            return ParseConfig(results[0], configPath);
+            var config = ParseConfig(results[0], configPath);
+            return config with { Imports = importRoot.Children };
         }
         catch (LuaCompileException ex)
         {
@@ -62,10 +91,14 @@ public static class ConfigLoader
         LuaState state,
         string rootConfigPath,
         LuaTable globalOptions,
-        LuaTable globalPkgs)
+        LuaTable globalPkgs,
+        ImportNode importRoot)
     {
         var directoryStack = new Stack<string>();
         directoryStack.Push(Path.GetDirectoryName(rootConfigPath) ?? "");
+
+        var nodeStack = new Stack<ImportNode>();
+        nodeStack.Push(importRoot);
 
         state.Environment["import"] = new LuaFunction((context, ct) =>
         {
@@ -100,6 +133,12 @@ public static class ConfigLoader
                 if (!File.Exists(importPath))
                     throw new FileNotFoundException($"Import file not found: {importPath} (referenced from config)");
 
+                var relativeToRoot = Path.GetRelativePath(
+                        Path.GetDirectoryName(rootConfigPath) ?? "", importPath)
+                    .Replace('\\', '/');
+                var childNode = new ImportNode(relativeToRoot);
+                nodeStack.Peek().Children.Add(childNode);
+
                 // Let the imported file require() siblings from its own directory.
                 var importDir = Path.GetDirectoryName(importPath)?.Replace('\\', '/') ?? "";
                 var pkg = state.Environment["package"].Read<LuaTable>();
@@ -108,6 +147,7 @@ public static class ConfigLoader
                 var script = File.ReadAllText(importPath);
 
                 directoryStack.Push(Path.GetDirectoryName(importPath) ?? "");
+                nodeStack.Push(childNode);
                 LuaValue[] importResults;
                 try
                 {
@@ -118,6 +158,7 @@ public static class ConfigLoader
                 finally
                 {
                     directoryStack.Pop();
+                    nodeStack.Pop();
                 }
 
                 if (importResults.Length > 0 && importResults[0].Type == LuaValueType.Table)
@@ -264,7 +305,13 @@ public static class ConfigLoader
             var t = options["chocolatey"].Read<LuaTable>();
             choco = new ChocoOptions(
                 Enable: ReadBool(t["enable"], choco.Enable),
-                Yes: ReadBool(t["yes"], choco.Yes)
+                Yes: ReadBool(t["yes"], choco.Yes),
+                Force: ReadBool(t["force"], choco.Force),
+                IgnoreDependencies: ReadBool(t["ignoreDependencies"], choco.IgnoreDependencies),
+                AllowDowngrade: ReadBool(t["allowDowngrade"], choco.AllowDowngrade),
+                SkipPowerShell: ReadBool(t["skipPowerShell"], choco.SkipPowerShell),
+                Params: ReadString(t["params"], choco.Params),
+                Pre: ReadBool(t["pre"], choco.Pre)
             );
         }
 
@@ -277,12 +324,33 @@ public static class ConfigLoader
             {
                 buckets = t["buckets"].Read<LuaTable>()
                     .Where(kvp => kvp.Key.Type == LuaValueType.Number)
-                    .Select(kvp => kvp.Value.Read<string>())
+                    .Select(kvp =>
+                    {
+                        if (kvp.Value.Type == LuaValueType.String)
+                            return new ScoopBucket(kvp.Value.Read<string>());
+
+                        if (kvp.Value.Type == LuaValueType.Table)
+                        {
+                            var bt = kvp.Value.Read<LuaTable>();
+                            var name = bt["name"].Read<string>();
+                            var url = bt["url"].Type != LuaValueType.Nil
+                                ? bt["url"].Read<string>()
+                                : null;
+                            return new ScoopBucket(name, url);
+                        }
+
+                        return new ScoopBucket(kvp.Value.Read<string>());
+                    })
                     .ToList();
             }
             scoop = new ScoopOptions(
                 Enable: ReadBool(t["enable"], scoop.Enable),
-                Buckets: buckets
+                Buckets: buckets,
+                Global: ReadBool(t["global"], scoop.Global),
+                Independent: ReadBool(t["independent"], scoop.Independent),
+                NoCache: ReadBool(t["noCache"], scoop.NoCache),
+                SkipHashCheck: ReadBool(t["skipHashCheck"], scoop.SkipHashCheck),
+                Arch: ReadString(t["arch"], scoop.Arch)
             );
         }
 
@@ -291,6 +359,9 @@ public static class ConfigLoader
 
     private static bool ReadBool(LuaValue value, bool fallback) =>
         value.Type == LuaValueType.Boolean ? value.Read<bool>() : fallback;
+
+    private static string? ReadString(LuaValue value, string? fallback) =>
+        value.Type == LuaValueType.String ? value.Read<string>() : fallback;
 
     private static List<PackageEntry> ReadPackageList(LuaTable pkgs, string key)
     {

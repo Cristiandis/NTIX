@@ -68,8 +68,10 @@ public static class StateService
                 File.Move(tempPath, statePath, overwrite: true);
                 return true;
             }
-            catch (Exception) when (attempt < maxRetries)
+            catch (Exception)
             {
+                if (attempt >= maxRetries)
+                    return false;
                 Thread.Sleep(50 * attempt);
             }
             finally
@@ -109,8 +111,10 @@ public static class StateService
                 File.Move(tempPath, statePath, overwrite: true);
                 return true;
             }
-            catch (Exception) when (attempt < maxRetries)
+            catch (Exception)
             {
+                if (attempt >= maxRetries)
+                    return false;
                 await Task.Delay(50 * attempt, ct);
             }
             finally

@@ -5,14 +5,18 @@ namespace NTIX.Core.Diff;
 
 public static class DiffEngine
 {
-    public static DiffResult ComputeDiff(
+    public static async Task<DiffResult> ComputeDiffAsync(
         NTIXConfig config,
         State state,
         InstalledPackages? installed = null,
         IWingetManager? wingetManager = null,
-        bool validatePackages = true)
+        bool validatePackages = true,
+        bool adoptMode = false,
+        bool upgradeMode = false,
+        IProgress<string>? progress = null)
     {
-        var (valid, error, warnings) = PackageManagerDetector.ValidateManagers(config.Options, config);
+        progress?.Report("Checking package managers...");
+        var (valid, error, warnings) = await PackageManagerDetector.ValidateManagersAsync(config.Options, config, wingetManager);
         if (!valid)
         {
             return new DiffResult(
@@ -25,15 +29,11 @@ public static class DiffEngine
             );
         }
 
-        foreach (var w in warnings)
-            ConsoleHelper.WriteWarning(w);
-
         var result = new DiffResult();
-        var installedPkgs = installed ?? PackageManagerDetector.GetInstalledPackages();
+        result.Warnings.AddRange(warnings);
 
-        var wingetInstalled = new HashSet<string>(installedPkgs.Winget.Keys, StringComparer.OrdinalIgnoreCase);
-        var chocoInstalled = new HashSet<string>(installedPkgs.Chocolatey.Keys, StringComparer.OrdinalIgnoreCase);
-        var scoopInstalled = new HashSet<string>(installedPkgs.Scoop.Keys, StringComparer.OrdinalIgnoreCase);
+        progress?.Report("Discovering installed packages...");
+        var installedPkgs = installed ?? await PackageManagerDetector.GetInstalledPackagesAsync();
 
         var hasWingetUnpinned = config.WingetPackages.Any(p => p.Version == null);
         var hasChocoUnpinned = config.ChocoPackages.Any(p => p.Version == null);
@@ -43,23 +43,28 @@ public static class DiffEngine
         var chocoEnabled = config.Options?.Chocolatey?.Enable ?? false;
         var scoopEnabled = config.Options?.Scoop?.Enable ?? false;
 
-        var wingetUpgradable = (hasWingetUnpinned && wingetEnabled)
-            ? PackageManagerDetector.GetWingetUpgradablePackages(() => wingetManager ?? new WingetManager())
+        progress?.Report("Checking for updates...");
+        var wingetUpgradable = (upgradeMode && hasWingetUnpinned && wingetEnabled)
+            ? await PackageManagerDetector.GetWingetUpgradablePackagesAsync(() => wingetManager ?? new WingetManager())
             : new Dictionary<string, UpgradeInfo>();
-        var chocoUpgradable = (hasChocoUnpinned && chocoEnabled)
+        var chocoUpgradable = (upgradeMode && hasChocoUnpinned && chocoEnabled)
             ? PackageManagerDetector.GetChocoUpgradablePackages()
             : new Dictionary<string, UpgradeInfo>();
-        var scoopUpgradable = (hasScoopUnpinned && scoopEnabled)
+        var scoopUpgradable = (upgradeMode && hasScoopUnpinned && scoopEnabled)
             ? PackageManagerDetector.GetScoopUpgradablePackages()
             : new Dictionary<string, UpgradeInfo>();
 
-        ClassifyPackages(result, config.WingetPackages, "winget", wingetEnabled, wingetInstalled, state.Winget, wingetUpgradable);
-        ClassifyPackages(result, config.ChocoPackages, "chocolatey", chocoEnabled, chocoInstalled, state.Chocolatey, chocoUpgradable);
-        ClassifyPackages(result, config.ScoopPackages, "scoop", scoopEnabled, scoopInstalled, state.Scoop, scoopUpgradable);
+        ClassifyPackages(result, config.WingetPackages, "winget", wingetEnabled, installedPkgs.Winget, state.Winget, wingetUpgradable, adoptMode);
+        ClassifyPackages(result, config.ChocoPackages, "chocolatey", chocoEnabled, installedPkgs.Chocolatey, state.Chocolatey, chocoUpgradable, adoptMode);
+        ClassifyPackages(result, config.ScoopPackages, "scoop", scoopEnabled, installedPkgs.Scoop, state.Scoop, scoopUpgradable, adoptMode);
 
         if (validatePackages)
-            ValidatePackageAvailability(result, wingetManager, wingetEnabled, chocoEnabled, scoopEnabled);
+        {
+            progress?.Report("Validating packages...");
+            await ValidatePackageAvailabilityAsync(result, state, wingetManager, wingetEnabled, chocoEnabled, scoopEnabled);
+        }
 
+        progress?.Report("Finding orphans...");
         FindOrphans(result, state.Winget, config.WingetPackages, "winget");
         FindOrphans(result, state.Chocolatey, config.ChocoPackages, "chocolatey");
         FindOrphans(result, state.Scoop, config.ScoopPackages, "scoop");
@@ -67,68 +72,22 @@ public static class DiffEngine
         return result;
     }
 
-    public static void PrintDiff(DiffResult diff)
-    {
-        if (!string.IsNullOrEmpty(diff.Error))
-        {
-            ConsoleHelper.WriteError(diff.Error);
-            foreach (var w in diff.Warnings)
-                ConsoleHelper.WriteWarning(w);
-            return;
-        }
-
-        if (diff.ToInstall.Count > 0)
-        {
-            ConsoleHelper.WriteSectionHeader("To install:", ConsoleColor.Green);
-            foreach (var p in diff.ToInstall)
-                ConsoleHelper.WritePackageLine(p.Source, p.Id, p.Version ?? "latest");
-        }
-
-        if (diff.ToUpgrade.Count > 0)
-        {
-            ConsoleHelper.WriteSectionHeader("To upgrade:", ConsoleColor.DarkYellow);
-            foreach (var p in diff.ToUpgrade)
-                ConsoleHelper.WritePackageLine(p.Source, p.Id, p.Version ?? "latest");
-        }
-
-        if (diff.ToSkip.Count > 0)
-        {
-            Console.WriteLine("Already installed (skip):");
-            foreach (var p in diff.ToSkip)
-                ConsoleHelper.WritePackageLine(p.Source, p.Id, p.Version ?? "latest");
-        }
-
-        if (diff.ToRemove.Count > 0)
-        {
-            ConsoleHelper.WriteSectionHeader("To remove:", ConsoleColor.DarkRed);
-            foreach (var p in diff.ToRemove)
-                ConsoleHelper.WritePackageLine(p.Source, p.Id, p.Version ?? "latest");
-        }
-
-        if (diff.IsEmpty)
-        {
-            Console.WriteLine("Nothing to do.");
-        }
-
-        foreach (var w in diff.Warnings)
-            ConsoleHelper.WriteWarning(w);
-    }
-
     private static void ClassifyPackages(
         DiffResult result,
         List<PackageEntry> packages,
         string sourceName,
         bool enabled,
-        HashSet<string> installed,
+        Dictionary<string, string> installedDict,
         Dictionary<string, string> stateDict,
-        Dictionary<string, UpgradeInfo> upgradable)
+        Dictionary<string, UpgradeInfo> upgradable,
+        bool adoptMode)
     {
         if (!enabled) return;
 
         foreach (var pkg in packages)
         {
             var spec = new PackageSpec(pkg.Id, pkg.Version, sourceName);
-            var isInstalled = installed.Contains(pkg.Id);
+            var isInstalled = installedDict.ContainsKey(pkg.Id);
             var inState = stateDict.ContainsKey(pkg.Id);
 
             if (pkg.Version == null)
@@ -141,6 +100,14 @@ public static class DiffEngine
                 else if (!isInstalled && !inState)
                 {
                     result.ToInstall.Add(spec);
+                }
+                else if (isInstalled && inState)
+                {
+                    result.ToSkip.Add(spec);
+                }
+                else if (isInstalled && adoptMode)
+                {
+                    result.ToAdopt.Add(spec);
                 }
                 else if (isInstalled)
                 {
@@ -160,6 +127,14 @@ public static class DiffEngine
                         result.ToInstall.Add(spec);
                     else
                         result.ToSkip.Add(spec);
+                }
+                else if (isInstalled && adoptMode)
+                {
+                    var installedVersion = installedDict[pkg.Id];
+                    if (string.Equals(installedVersion, pkg.Version, StringComparison.OrdinalIgnoreCase))
+                        result.ToAdopt.Add(spec with { Version = installedVersion });
+                    else
+                        result.ToInstall.Add(spec);
                 }
                 else
                 {
@@ -182,8 +157,9 @@ public static class DiffEngine
         }
     }
 
-    private static void ValidatePackageAvailability(
+    private static async Task ValidatePackageAvailabilityAsync(
         DiffResult result,
+        State state,
         IWingetManager? wingetManager,
         bool wingetEnabled,
         bool chocoEnabled,
@@ -195,63 +171,90 @@ public static class DiffEngine
         var chocoPkgs = result.ToInstall.Where(p => p.Source == "chocolatey").ToList();
         var scoopPkgs = result.ToInstall.Where(p => p.Source == "scoop").ToList();
 
-        if (wingetEnabled && wingetPkgs.Count > 0)
+        var newWingetPkgs = wingetPkgs.Where(p => !state.Winget.ContainsKey(p.Id)).ToList();
+        var newChocoPkgs = chocoPkgs.Where(p => !state.Chocolatey.ContainsKey(p.Id)).ToList();
+        var newScoopPkgs = scoopPkgs.Where(p => !state.Scoop.ContainsKey(p.Id)).ToList();
+
+        var validationTasks = new List<Task>();
+
+        if (wingetEnabled && newWingetPkgs.Count > 0)
         {
-            var mgr = wingetManager ?? new WingetManager();
-            foreach (var pkg in wingetPkgs)
+            validationTasks.Add(Task.Run(async () =>
             {
-                try
+                var results = await PackageManagerDetector.ValidateWingetPackagesExistsAsync(
+                    newWingetPkgs.Select(p => p.Id), wingetManager);
+                foreach (var pkg in newWingetPkgs)
                 {
-                    if (!mgr.PackageExistsAsync(pkg.Id).GetAwaiter().GetResult())
+                    if (results.TryGetValue(pkg.Id, out var exists))
                     {
-                        result.Warnings.Add($"Package not found in winget: {pkg.Id}");
-                        invalid.Add(pkg);
+                        if (exists == false)
+                        {
+                            result.Warnings.Add($"Package not found in winget: {pkg.Id}");
+                            lock (invalid) invalid.Add(pkg);
+                        }
+                        else if (exists == null)
+                        {
+                            result.Warnings.Add($"Could not verify package in winget: {pkg.Id}");
+                        }
+                    }
+                    else
+                    {
+                        result.Warnings.Add($"Could not verify package in winget: {pkg.Id}");
                     }
                 }
-                catch
-                {
-                    result.Warnings.Add($"Could not verify package in winget: {pkg.Id}");
-                }
-            }
+            }));
         }
 
-        if (chocoEnabled && chocoPkgs.Count > 0)
+        if (chocoEnabled && newChocoPkgs.Count > 0)
         {
-            foreach (var pkg in chocoPkgs)
+            validationTasks.Add(Task.Run(async () =>
             {
-                try
+                var results = await PackageManagerDetector.ValidateChocoPackagesExistsAsync(
+                    newChocoPkgs.Select(p => p.Id));
+                foreach (var pkg in newChocoPkgs)
                 {
-                    if (!PackageManagerDetector.ValidateChocoPackageExists(pkg.Id))
+                    if (results.TryGetValue(pkg.Id, out var exists))
                     {
-                        result.Warnings.Add($"Package not found in chocolatey: {pkg.Id}");
-                        invalid.Add(pkg);
+                        if (!exists)
+                        {
+                            result.Warnings.Add($"Package not found in chocolatey: {pkg.Id}");
+                            lock (invalid) invalid.Add(pkg);
+                        }
+                    }
+                    else
+                    {
+                        result.Warnings.Add($"Could not verify package in chocolatey: {pkg.Id}");
                     }
                 }
-                catch
-                {
-                    result.Warnings.Add($"Could not verify package in chocolatey: {pkg.Id}");
-                }
-            }
+            }));
         }
 
-        if (scoopEnabled && scoopPkgs.Count > 0)
+        if (scoopEnabled && newScoopPkgs.Count > 0)
         {
-            foreach (var pkg in scoopPkgs)
+            validationTasks.Add(Task.Run(async () =>
             {
-                try
+                var results = await PackageManagerDetector.ValidateScoopPackagesExistsAsync(
+                    newScoopPkgs.Select(p => p.Id));
+                foreach (var pkg in newScoopPkgs)
                 {
-                    if (!PackageManagerDetector.ValidateScoopPackageExists(pkg.Id))
+                    if (results.TryGetValue(pkg.Id, out var exists))
                     {
-                        result.Warnings.Add($"Package not found in scoop: {pkg.Id}");
-                        invalid.Add(pkg);
+                        if (!exists)
+                        {
+                            result.Warnings.Add($"Package not found in scoop: {pkg.Id}");
+                            lock (invalid) invalid.Add(pkg);
+                        }
+                    }
+                    else
+                    {
+                        result.Warnings.Add($"Could not verify package in scoop: {pkg.Id}");
                     }
                 }
-                catch
-                {
-                    result.Warnings.Add($"Could not verify package in scoop: {pkg.Id}");
-                }
-            }
+            }));
         }
+
+        if (validationTasks.Count > 0)
+            await Task.WhenAll(validationTasks);
 
         foreach (var pkg in invalid)
             result.ToInstall.Remove(pkg);

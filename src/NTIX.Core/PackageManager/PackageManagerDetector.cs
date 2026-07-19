@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Text.Json;
+using System.Threading.Tasks;
 using NTIX.Core.Models;
 
 namespace NTIX.Core.PackageManager;
@@ -17,14 +19,15 @@ public static class PackageManagerDetector
         IWingetManager? wingetManager = null)
     {
         var warnings = new List<string>();
+        options ??= new NTIXOptions();
 
-        if (options.Chocolatey.Enable && !IsChocolateyInstalled())
+        if ((options.Chocolatey?.Enable ?? false) && !IsChocolateyInstalled())
             return (false, "Chocolatey is enabled but not installed. Install from https://chocolatey.org/install", warnings);
 
-        if (options.Scoop.Enable && !IsScoopInstalled())
+        if ((options.Scoop?.Enable ?? false) && !IsScoopInstalled())
             return (false, "Scoop is enabled but not installed. Install from https://scoop.sh", warnings);
 
-        if (options.Winget.Enable)
+        if (options.Winget?.Enable ?? false)
         {
             var mgr = wingetManager ?? new WingetManager();
             if (!mgr.IsInstalled)
@@ -35,10 +38,10 @@ public static class PackageManagerDetector
             }
         }
 
-        if (config.ChocoPackages.Count > 0 && !options.Chocolatey.Enable)
+        if (config.ChocoPackages.Count > 0 && !(options.Chocolatey?.Enable ?? false))
             warnings.Add("[warn] Chocolatey packages declared but chocolatey not enabled in options");
 
-        if (config.ScoopPackages.Count > 0 && !options.Scoop.Enable)
+        if (config.ScoopPackages.Count > 0 && !(options.Scoop?.Enable ?? false))
             warnings.Add("[warn] Scoop packages declared but scoop not enabled in options");
 
         return (true, null, warnings);
@@ -55,7 +58,7 @@ public static class PackageManagerDetector
             return (false, "Chocolatey is enabled but not installed. Install from https://chocolatey.org/install", warnings);
 
         if ((options.Scoop?.Enable ?? false) && !IsScoopInstalled())
-            return (false, "Scoop is enabled but not installed. Install from https://scoop.sh (make sure to install as admin)", warnings);
+            return (false, "Scoop is enabled but not installed. Install from https://scoop.sh", warnings);
 
         if (config.ChocoPackages.Count > 0 && !(options.Chocolatey?.Enable ?? false))
             warnings.Add("[warn] Chocolatey packages declared but chocolatey not enabled in options");
@@ -66,8 +69,9 @@ public static class PackageManagerDetector
         return (true, null, warnings);
     }
 
-    public static async Task<InstalledPackages> GetInstalledPackagesAsync(Func<IWingetManager>? wingetFactory = null)
+    public static async Task<InstalledPackages> GetInstalledPackagesAsync(Func<IWingetManager>? wingetFactory = null, ICommandRunner? runner = null)
     {
+        var cmd = runner ?? new ProcessCommandRunner();
         var result = new InstalledPackages();
         var factory = wingetFactory ?? (() => new WingetManager());
         var wingetManager = factory();
@@ -82,7 +86,7 @@ public static class PackageManagerDetector
         }
         catch { }
 
-        var chocoOut = RunProcess("choco list -r --local-only --limit-output 2>nul", redirectStderr: true);
+        var chocoOut = await RunProcessAsync(cmd, "choco list -r --local-only --limit-output 2>nul");
         if (!string.IsNullOrEmpty(chocoOut))
         {
             var regex = new Regex(@"^([^|]+)\|([^|]+)\|.*$", RegexOptions.Multiline);
@@ -95,7 +99,7 @@ public static class PackageManagerDetector
             }
         }
 
-        var scoopOut = RunProcess("scoop list --local-only --limit-output 2>nul", redirectStderr: true);
+        var scoopOut = await RunProcessAsync(cmd, "scoop list --local-only --limit-output 2>nul");
         if (!string.IsNullOrEmpty(scoopOut))
         {
             var regex = new Regex(@"^([^\s]+)\s+([^\s]+)\s+.*$", RegexOptions.Multiline);
@@ -122,10 +126,11 @@ public static class PackageManagerDetector
 
     public static Dictionary<string, UpgradeInfo> GetWingetUpgradablePackages(Func<IWingetManager>? wingetFactory = null) => GetWingetUpgradablePackagesAsync(wingetFactory).GetAwaiter().GetResult();
 
-    public static Dictionary<string, UpgradeInfo> GetChocoUpgradablePackages()
+    public static async Task<Dictionary<string, UpgradeInfo>> GetChocoUpgradablePackagesAsync(ICommandRunner? runner = null)
     {
+        var cmd = runner ?? new ProcessCommandRunner();
         var result = new Dictionary<string, UpgradeInfo>();
-        var output = RunProcess("choco outdated --limit-output 2>nul", redirectStderr: true);
+        var output = await RunProcessAsync(cmd, "choco outdated --limit-output 2>nul");
         if (string.IsNullOrEmpty(output)) return result;
 
         var regex = new Regex(@"^([^|]+)\|([^|]+)\|([^|]+)\|.*$", RegexOptions.Multiline);
@@ -140,10 +145,13 @@ public static class PackageManagerDetector
         return result;
     }
 
-    public static Dictionary<string, UpgradeInfo> GetScoopUpgradablePackages()
+    public static Dictionary<string, UpgradeInfo> GetChocoUpgradablePackages() => GetChocoUpgradablePackagesAsync().GetAwaiter().GetResult();
+
+    public static async Task<Dictionary<string, UpgradeInfo>> GetScoopUpgradablePackagesAsync(ICommandRunner? runner = null)
     {
+        var cmd = runner ?? new ProcessCommandRunner();
         var result = new Dictionary<string, UpgradeInfo>();
-        var output = RunProcess("scoop status --json 2>nul", redirectStderr: true);
+        var output = await RunProcessAsync(cmd, "scoop status --json 2>nul");
         if (string.IsNullOrEmpty(output)) return result;
 
         try
@@ -165,17 +173,28 @@ public static class PackageManagerDetector
         return result;
     }
 
-    public static async Task<Dictionary<string, UpgradeInfo>> GetAllUpgradablePackagesAsync(Func<IWingetManager>? wingetFactory = null)
+    public static Dictionary<string, UpgradeInfo> GetScoopUpgradablePackages() => GetScoopUpgradablePackagesAsync().GetAwaiter().GetResult();
+
+    public static async Task<Dictionary<string, UpgradeInfo>> GetAllUpgradablePackagesAsync(Func<IWingetManager>? wingetFactory = null, ICommandRunner? runner = null)
     {
         var winget = await GetWingetUpgradablePackagesAsync(wingetFactory);
-        var choco = GetChocoUpgradablePackages();
-        var scoop = GetScoopUpgradablePackages();
+        var choco = await GetChocoUpgradablePackagesAsync(runner);
+        var scoop = await GetScoopUpgradablePackagesAsync(runner);
 
         var result = new Dictionary<string, UpgradeInfo>();
         foreach (var kvp in winget) result[kvp.Key] = kvp.Value;
         foreach (var kvp in choco) result[kvp.Key] = kvp.Value;
         foreach (var kvp in scoop) result[kvp.Key] = kvp.Value;
         return result;
+    }
+
+    public static async Task<bool> ValidateChocoPackageExistsAsync(string id, ICommandRunner? runner = null)
+    {
+        var cmd = runner ?? new ProcessCommandRunner();
+        var output = await RunProcessAsync(cmd, CommandBuilder.BuildChocoSearch(id));
+        if (string.IsNullOrEmpty(output)) return false;
+        var regex = new Regex($@"^{Regex.Escape(id)}\|", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+        return regex.IsMatch(output);
     }
 
     public static bool ValidateChocoPackageExists(string id)
@@ -186,12 +205,67 @@ public static class PackageManagerDetector
         return regex.IsMatch(output);
     }
 
+    public static async Task<bool> ValidateScoopPackageExistsAsync(string id, ICommandRunner? runner = null)
+    {
+        var cmd = runner ?? new ProcessCommandRunner();
+        var output = await RunProcessAsync(cmd, CommandBuilder.BuildScoopInfo(id));
+        if (string.IsNullOrEmpty(output)) return false;
+        var pattern = new Regex(@"^\s*Name\s*:", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+        return pattern.IsMatch(output);
+    }
+
     public static bool ValidateScoopPackageExists(string id)
     {
         var output = RunProcess(CommandBuilder.BuildScoopInfo(id), redirectStderr: true);
         if (string.IsNullOrEmpty(output)) return false;
         var pattern = new Regex(@"^\s*Name\s*:", RegexOptions.Multiline | RegexOptions.IgnoreCase);
         return pattern.IsMatch(output);
+    }
+
+    public static async Task<Dictionary<string, bool?>> ValidateWingetPackagesExistsAsync(
+        IEnumerable<string> ids, IWingetManager? wingetManager = null, CancellationToken ct = default)
+    {
+        var mgr = wingetManager ?? new WingetManager();
+        var tasks = ids.Select(async id =>
+        {
+            try
+            {
+                var exists = await mgr.PackageExistsAsync(id, ct);
+                return (Id: id, Exists: (bool?)exists);
+            }
+            catch
+            {
+                return (Id: id, Exists: (bool?)null);
+            }
+        });
+        var results = await Task.WhenAll(tasks);
+        return results.ToDictionary(r => r.Id, r => r.Exists);
+    }
+
+    public static async Task<Dictionary<string, bool>> ValidateChocoPackagesExistsAsync(
+        IEnumerable<string> ids, ICommandRunner? runner = null, CancellationToken ct = default)
+    {
+        var cmd = runner ?? new ProcessCommandRunner();
+        var result = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        await Parallel.ForEachAsync(ids, ct, async (id, token) =>
+        {
+            var exists = await ValidateChocoPackageExistsAsync(id, cmd);
+            result[id] = exists;
+        });
+        return result;
+    }
+
+    public static async Task<Dictionary<string, bool>> ValidateScoopPackagesExistsAsync(
+        IEnumerable<string> ids, ICommandRunner? runner = null, CancellationToken ct = default)
+    {
+        var cmd = runner ?? new ProcessCommandRunner();
+        var result = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        await Parallel.ForEachAsync(ids, ct, async (id, token) =>
+        {
+            var exists = await ValidateScoopPackageExistsAsync(id, cmd);
+            result[id] = exists;
+        });
+        return result;
     }
 
     internal static string? RunProcess(string cmd, bool redirectStderr = false)
@@ -217,5 +291,10 @@ public static class PackageManagerDetector
             return output.Trim();
         }
         catch { return null; }
+    }
+
+    private static async Task<string> RunProcessAsync(ICommandRunner runner, string cmd)
+    {
+        return await runner.RunOutputAsync(cmd, combineStderr: true);
     }
 }
