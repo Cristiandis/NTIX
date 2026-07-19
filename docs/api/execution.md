@@ -42,9 +42,10 @@ public static async Task<bool> ApplyDiffAsync(
 ### Execution Order
 
 1. Returns `false` early if `diff.Error` is set
-2. Ensures scoop buckets exist (if scoop packages need installing)
-3. Installs packages (`ToInstall`)
-4. Upgrades packages (`ToUpgrade`)
-5. Removes orphans (`ToRemove`)
-6. Adopts packages (`ToAdopt`) - state-only, no install
-7. Saves state after each successful operation
+2. Ensures scoop buckets exist (if scoop is enabled)
+3. Removes orphan scoop buckets not in config (if scoop is enabled)
+4. Installs packages (`ToInstall`)
+5. Upgrades packages (`ToUpgrade`)
+6. Removes orphans (`ToRemove`)
+7. Adopts packages (`ToAdopt`) - state-only, no install
+8. Saves state after each successful operation

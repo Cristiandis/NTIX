@@ -81,6 +81,9 @@ Static CLI command builder. All methods return shell command strings.
 | `BuildChocoUninstall(id, opts)` | `choco uninstall` with flags |
 | `BuildScoopUninstall(id, opts)` | `scoop uninstall` with flags |
 | `BuildChocoSearch(id)` | `choco search --limit-output` |
+| `BuildWingetUninstall(id, opts)` | `winget uninstall --id {id} --exact` with flags |
+| `BuildScoopUninstall(id, opts)` | `scoop uninstall` with flags |
 | `BuildScoopInfo(id)` | `scoop info` |
 | `BuildScoopBucketAdd(name, url?)` | `scoop bucket add` |
 | `BuildScoopBucketList()` | `scoop bucket list` |
+| `BuildScoopBucketRemove(name)` | `scoop bucket rm` |
