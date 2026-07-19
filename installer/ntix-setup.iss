@@ -2,13 +2,13 @@
 ; https://github.com/Cristiandis/NTIX
 ;
 ; Build:
-;   iscc /DVersion=1.0.2 ntix-setup.iss
+;   iscc /DVersion=1.0.3 ntix-setup.iss
 ;
 ; Silent install:
 ;   ntix-setup.exe /SILENT
 
 #ifndef Version
-  #define Version "1.0.2"
+  #define Version "1.0.3"
 #endif
 
 [Setup]
