@@ -10,8 +10,10 @@ public static class DiffEngine
         State state,
         InstalledPackages? installed = null,
         IWingetManager? wingetManager = null,
-        bool validatePackages = true)
+        bool validatePackages = true,
+        IProgress<string>? progress = null)
     {
+        progress?.Report("Checking package managers...");
         var (valid, error, warnings) = PackageManagerDetector.ValidateManagers(config.Options, config);
         if (!valid)
         {
@@ -29,6 +31,8 @@ public static class DiffEngine
             ConsoleHelper.WriteWarning(w);
 
         var result = new DiffResult();
+
+        progress?.Report("Discovering installed packages...");
         var installedPkgs = installed ?? PackageManagerDetector.GetInstalledPackages();
 
         var wingetInstalled = new HashSet<string>(installedPkgs.Winget.Keys, StringComparer.OrdinalIgnoreCase);
@@ -43,6 +47,7 @@ public static class DiffEngine
         var chocoEnabled = config.Options?.Chocolatey?.Enable ?? false;
         var scoopEnabled = config.Options?.Scoop?.Enable ?? false;
 
+        progress?.Report("Checking for updates...");
         var wingetUpgradable = (hasWingetUnpinned && wingetEnabled)
             ? PackageManagerDetector.GetWingetUpgradablePackages(() => wingetManager ?? new WingetManager())
             : new Dictionary<string, UpgradeInfo>();
@@ -58,8 +63,12 @@ public static class DiffEngine
         ClassifyPackages(result, config.ScoopPackages, "scoop", scoopEnabled, scoopInstalled, state.Scoop, scoopUpgradable);
 
         if (validatePackages)
+        {
+            progress?.Report("Validating packages...");
             ValidatePackageAvailability(result, wingetManager, wingetEnabled, chocoEnabled, scoopEnabled);
+        }
 
+        progress?.Report("Finding orphans...");
         FindOrphans(result, state.Winget, config.WingetPackages, "winget");
         FindOrphans(result, state.Chocolatey, config.ChocoPackages, "chocolatey");
         FindOrphans(result, state.Scoop, config.ScoopPackages, "scoop");

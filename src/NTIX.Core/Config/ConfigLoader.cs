@@ -65,12 +65,14 @@ public static class ConfigLoader
         state.Environment["options"] = globalOptions;
         state.Environment["pkgs"] = globalPkgs;
 
-        RegisterImportFunction(state, fullConfigPath, globalOptions, globalPkgs);
+        var importRoot = new ImportNode(Path.GetFileName(configPath));
+        RegisterImportFunction(state, fullConfigPath, globalOptions, globalPkgs, importRoot);
 
         try
         {
             var results = state.DoStringAsync(luaScript).GetAwaiter().GetResult();
-            return ParseConfig(results[0], configPath);
+            var config = ParseConfig(results[0], configPath);
+            return config with { Imports = importRoot.Children };
         }
         catch (LuaCompileException ex)
         {
@@ -89,10 +91,14 @@ public static class ConfigLoader
         LuaState state,
         string rootConfigPath,
         LuaTable globalOptions,
-        LuaTable globalPkgs)
+        LuaTable globalPkgs,
+        ImportNode importRoot)
     {
         var directoryStack = new Stack<string>();
         directoryStack.Push(Path.GetDirectoryName(rootConfigPath) ?? "");
+
+        var nodeStack = new Stack<ImportNode>();
+        nodeStack.Push(importRoot);
 
         state.Environment["import"] = new LuaFunction((context, ct) =>
         {
@@ -127,6 +133,12 @@ public static class ConfigLoader
                 if (!File.Exists(importPath))
                     throw new FileNotFoundException($"Import file not found: {importPath} (referenced from config)");
 
+                var relativeToRoot = Path.GetRelativePath(
+                        Path.GetDirectoryName(rootConfigPath) ?? "", importPath)
+                    .Replace('\\', '/');
+                var childNode = new ImportNode(relativeToRoot);
+                nodeStack.Peek().Children.Add(childNode);
+
                 // Let the imported file require() siblings from its own directory.
                 var importDir = Path.GetDirectoryName(importPath)?.Replace('\\', '/') ?? "";
                 var pkg = state.Environment["package"].Read<LuaTable>();
@@ -135,6 +147,7 @@ public static class ConfigLoader
                 var script = File.ReadAllText(importPath);
 
                 directoryStack.Push(Path.GetDirectoryName(importPath) ?? "");
+                nodeStack.Push(childNode);
                 LuaValue[] importResults;
                 try
                 {
@@ -145,6 +158,7 @@ public static class ConfigLoader
                 finally
                 {
                     directoryStack.Pop();
+                    nodeStack.Pop();
                 }
 
                 if (importResults.Length > 0 && importResults[0].Type == LuaValueType.Table)
