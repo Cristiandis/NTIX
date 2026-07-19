@@ -59,6 +59,8 @@ var success = await ExecutionEngine.ApplyDiffAsync(
 | `DiffResult` | Computed actions (install/upgrade/remove/adopt/skip) |
 | `InstalledPackages` | Packages found on the system |
 | `IWingetManager` | Abstraction over winget CLI (mockable) |
+| `ICommandRunner` | Abstraction over shell commands (mockable) |
+| `ProcessCommandRunner` | Default `ICommandRunner` using `cmd.exe` |
 | `ConfigLoader` | Parses Lua config files |
 | `DiffEngine` | Computes what needs to change |
 | `ExecutionEngine` | Applies changes via package managers |

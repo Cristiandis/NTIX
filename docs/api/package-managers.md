@@ -6,7 +6,7 @@ Interfaces, implementations, and utilities for package manager interaction.
 
 ### IWingetManager
 
-The sole interface in NTIX.Core. Used for dependency injection and testing.
+Interface for winget operations. Used for dependency injection and testing.
 
 ```csharp
 namespace NTIX.Core.PackageManager;
@@ -27,9 +27,26 @@ namespace NTIX.Core.PackageManager;
 | `ImportPackagesAsync` | `Task<bool> ImportPackagesAsync(string filePath, CancellationToken ct)` | `bool` | Import package list |
 | `GetVersionAsync` | `Task<string?> GetVersionAsync(CancellationToken ct)` | `string?` | Winget version string |
 
+### ICommandRunner
+
+Interface for running shell commands. Injected into `ExecutionEngine` and `PackageManagerDetector` for testability.
+
+```csharp
+namespace NTIX.Core.PackageManager;
+```
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `RunAsync` | `Task<int> RunAsync(string command, Action<string>? onOutput, Action<string>? onError)` | Run command, return exit code |
+| `RunOutputAsync` | `Task<string> RunOutputAsync(string command, bool combineStderr = false)` | Run command, return stdout |
+
+### ProcessCommandRunner
+
+Default implementation. Wraps `cmd.exe /c {command}` with stdout/stderr redirection. Create via `new ProcessCommandRunner()`.
+
 ### WingetManager
 
-Default implementation using WGet.NET. Create via `new WingetManager()`.
+Default `IWingetManager` implementation using WGet.NET. Create via `new WingetManager()`.
 
 ### PackageManagerDetector
 
@@ -40,13 +57,15 @@ Static utility for discovering installed and upgradable packages.
 | `IsChocolateyInstalled()` | `bool` | Runs `choco --version` |
 | `IsScoopInstalled()` | `bool` | Runs `scoop --version` |
 | `ValidateManagersAsync(options, config, wingetManager?)` | `(bool Valid, string? Error, List<string> Warnings)` | Validates enabled managers are installed |
-| `GetInstalledPackagesAsync(wingetFactory?)` | `Task<InstalledPackages>` | Enumerates all installed packages |
+| `GetInstalledPackagesAsync(wingetFactory?, runner?)` | `Task<InstalledPackages>` | Enumerates all installed packages |
 | `GetWingetUpgradablePackagesAsync(wingetFactory?)` | `Task<Dictionary<string, UpgradeInfo>>` | Winget upgrades |
-| `GetChocoUpgradablePackages()` | `Dictionary<string, UpgradeInfo>` | Choco upgrades |
-| `GetScoopUpgradablePackages()` | `Dictionary<string, UpgradeInfo>` | Scoop upgrades |
+| `GetChocoUpgradablePackagesAsync(runner?)` | `Task<Dictionary<string, UpgradeInfo>>` | Choco upgrades |
+| `GetScoopUpgradablePackagesAsync(runner?)` | `Task<Dictionary<string, UpgradeInfo>>` | Scoop upgrades |
 | `ValidateWingetPackagesExistsAsync(ids, wingetManager?, ct)` | `Task<Dictionary<string, bool?>>` | Parallel existence check |
-| `ValidateChocoPackagesExistsAsync(ids, ct)` | `Task<Dictionary<string, bool>>` | Parallel existence check |
-| `ValidateScoopPackagesExistsAsync(ids, ct)` | `Task<Dictionary<string, bool>>` | Parallel existence check |
+| `ValidateChocoPackageExistsAsync(id, runner?)` | `Task<bool>` | Single choco package check |
+| `ValidateScoopPackageExistsAsync(id, runner?)` | `Task<bool>` | Single scoop package check |
+| `ValidateChocoPackagesExistsAsync(ids, runner?, ct)` | `Task<Dictionary<string, bool>>` | Parallel existence check |
+| `ValidateScoopPackagesExistsAsync(ids, runner?, ct)` | `Task<Dictionary<string, bool>>` | Parallel existence check |
 
 ### CommandBuilder
 

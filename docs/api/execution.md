@@ -20,7 +20,8 @@ public static async Task<bool> ApplyDiffAsync(
     IWingetManager? wingetManager = null,
     NTIXConfig? config = null,
     Action<string>? onOutput = null,
-    Action<string>? onError = null);
+    Action<string>? onError = null,
+    ICommandRunner? runner = null);
 ```
 
 | Parameter | Type | Default | Description |
@@ -34,6 +35,7 @@ public static async Task<bool> ApplyDiffAsync(
 | `config` | `NTIXConfig?` | `null` | Re-validates managers before execution |
 | `onOutput` | `Action<string>?` | `null` | Stdout callback |
 | `onError` | `Action<string>?` | `null` | Stderr callback |
+| `runner` | `ICommandRunner?` | `null` | Command runner for choco/scoop (defaults to `ProcessCommandRunner`) |
 
 **Returns:** `Task<bool>` - true if all operations succeeded.
 
