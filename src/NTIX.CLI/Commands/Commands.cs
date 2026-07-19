@@ -81,7 +81,11 @@ public partial class ApplyCommand : ICommand
 
         using var lockFile = new LockFile();
         var statePath = StateService.GetStatePath();
-        var success = await ExecutionEngine.ApplyDiffAsync(diff, config.Options, state, statePath, stopOnFailure: StopOnFailure);
+        var success = await ExecutionEngine.ApplyDiffAsync(
+            diff, config.Options, state, statePath,
+            stopOnFailure: StopOnFailure,
+            onOutput: Console.WriteLine,
+            onError: msg => AnsiConsole.MarkupLine($"[red]{Markup.Escape(msg)}[/]"));
 
         if (success)
         {

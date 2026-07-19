@@ -149,7 +149,7 @@ public sealed class WingetManager : IWingetManager
         }
         catch
         {
-            return true;
+            return false;
         }
     }
 

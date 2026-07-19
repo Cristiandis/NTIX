@@ -27,10 +27,8 @@ public static class DiffEngine
             );
         }
 
-        foreach (var w in warnings)
-            ConsoleHelper.WriteWarning(w);
-
         var result = new DiffResult();
+        result.Warnings.AddRange(warnings);
 
         progress?.Report("Discovering installed packages...");
         var installedPkgs = installed ?? PackageManagerDetector.GetInstalledPackages();
@@ -74,53 +72,6 @@ public static class DiffEngine
         FindOrphans(result, state.Scoop, config.ScoopPackages, "scoop");
 
         return result;
-    }
-
-    public static void PrintDiff(DiffResult diff)
-    {
-        if (!string.IsNullOrEmpty(diff.Error))
-        {
-            ConsoleHelper.WriteError(diff.Error);
-            foreach (var w in diff.Warnings)
-                ConsoleHelper.WriteWarning(w);
-            return;
-        }
-
-        if (diff.ToInstall.Count > 0)
-        {
-            ConsoleHelper.WriteSectionHeader("To install:", ConsoleColor.Green);
-            foreach (var p in diff.ToInstall)
-                ConsoleHelper.WritePackageLine(p.Source, p.Id, p.Version ?? "latest");
-        }
-
-        if (diff.ToUpgrade.Count > 0)
-        {
-            ConsoleHelper.WriteSectionHeader("To upgrade:", ConsoleColor.DarkYellow);
-            foreach (var p in diff.ToUpgrade)
-                ConsoleHelper.WritePackageLine(p.Source, p.Id, p.Version ?? "latest");
-        }
-
-        if (diff.ToSkip.Count > 0)
-        {
-            Console.WriteLine("Already installed (skip):");
-            foreach (var p in diff.ToSkip)
-                ConsoleHelper.WritePackageLine(p.Source, p.Id, p.Version ?? "latest");
-        }
-
-        if (diff.ToRemove.Count > 0)
-        {
-            ConsoleHelper.WriteSectionHeader("To remove:", ConsoleColor.DarkRed);
-            foreach (var p in diff.ToRemove)
-                ConsoleHelper.WritePackageLine(p.Source, p.Id, p.Version ?? "latest");
-        }
-
-        if (diff.IsEmpty)
-        {
-            Console.WriteLine("Nothing to do.");
-        }
-
-        foreach (var w in diff.Warnings)
-            ConsoleHelper.WriteWarning(w);
     }
 
     private static void ClassifyPackages(

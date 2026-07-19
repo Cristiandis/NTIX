@@ -9,13 +9,22 @@ namespace NTIX.Core.Execution;
 
 public static class ExecutionEngine
 {
-    public static async Task<bool> ApplyDiffAsync(DiffResult diff, NTIXOptions options, State state, string statePath, bool stopOnFailure = true, IWingetManager? wingetManager = null, NTIXConfig? config = null)
+    public static async Task<bool> ApplyDiffAsync(
+        DiffResult diff,
+        NTIXOptions options,
+        State state,
+        string statePath,
+        bool stopOnFailure = true,
+        IWingetManager? wingetManager = null,
+        NTIXConfig? config = null,
+        Action<string>? onOutput = null,
+        Action<string>? onError = null)
     {
         if (!string.IsNullOrEmpty(diff.Error))
         {
-            ConsoleHelper.WriteError(diff.Error);
+            onError?.Invoke(diff.Error);
             foreach (var w in diff.Warnings)
-                ConsoleHelper.WriteWarning(w);
+                onError?.Invoke(w);
             return false;
         }
 
@@ -24,13 +33,13 @@ public static class ExecutionEngine
             var (valid, error, warnings) = PackageManagerDetector.ValidateManagers(options, config);
             if (!valid)
             {
-                ConsoleHelper.WriteError(error ?? "Unknown error");
+                onError?.Invoke(error ?? "Unknown error");
                 foreach (var w in warnings)
-                    ConsoleHelper.WriteWarning(w);
+                    onError?.Invoke(w);
                 return false;
             }
             foreach (var w in warnings)
-                ConsoleHelper.WriteWarning(w);
+                onError?.Invoke(w);
         }
 
         var allOk = true;
@@ -38,7 +47,7 @@ public static class ExecutionEngine
 
         if (options.Scoop.Enable && diff.ToInstall.Any(p => p.Source == "scoop"))
         {
-            var ensured = await EnsureScoopBucketsAsync(options.Scoop.Buckets);
+            var ensured = await EnsureScoopBucketsAsync(options.Scoop.Buckets, onOutput, onError);
             if (!ensured)
                 allOk = false;
         }
@@ -47,14 +56,14 @@ public static class ExecutionEngine
         {
             if (!IsEnabled(pkg.Source, options)) continue;
 
-            Console.WriteLine($"Installing {pkg.Source}:{pkg.Id}...");
+            onOutput?.Invoke($"Installing {pkg.Source}:{pkg.Id}...");
 
             bool success = pkg.Source switch
             {
                 "winget" => await manager.InstallAsync(pkg.Id, pkg.Version, options.Winget.AcceptAgreements, !options.Winget.Interactive),
-                "chocolatey" => await RunCommandAsync(CommandBuilder.BuildChocoInstall(pkg.Id, pkg.Version, options.Chocolatey)) == 0,
-                "scoop" => await RunCommandAsync(CommandBuilder.BuildScoopInstall(pkg.Id, pkg.Version, options.Scoop)) == 0,
-                _ => throw new InvalidOperationException($"Unknown source: {pkg.Source}")
+                "chocolatey" => await RunCommandAsync(CommandBuilder.BuildChocoInstall(pkg.Id, pkg.Version, options.Chocolatey), onOutput, onError) == 0,
+                "scoop" => await RunCommandAsync(CommandBuilder.BuildScoopInstall(pkg.Id, pkg.Version, options.Scoop), onOutput, onError) == 0,
+                _ => false
             };
 
             if (success)
@@ -64,7 +73,7 @@ public static class ExecutionEngine
             }
             else
             {
-                ConsoleHelper.WriteError($"Failed to install {pkg.Source}:{pkg.Id}");
+                onError?.Invoke($"Failed to install {pkg.Source}:{pkg.Id}");
                 allOk = false;
                 if (stopOnFailure) return false;
             }
@@ -74,14 +83,14 @@ public static class ExecutionEngine
         {
             if (!IsEnabled(pkg.Source, options)) continue;
 
-            Console.WriteLine($"Upgrading {pkg.Source}:{pkg.Id}...");
+            onOutput?.Invoke($"Upgrading {pkg.Source}:{pkg.Id}...");
 
             bool success = pkg.Source switch
             {
                 "winget" => await manager.UpgradeAsync(pkg.Id, options.Winget.AcceptAgreements, !options.Winget.Interactive),
-                "chocolatey" => await RunCommandAsync(CommandBuilder.BuildChocoUpgrade(pkg.Id, options.Chocolatey)) == 0,
-                "scoop" => await RunCommandAsync(CommandBuilder.BuildScoopUpgrade(pkg.Id, options.Scoop)) == 0,
-                _ => throw new InvalidOperationException($"Unknown source: {pkg.Source}")
+                "chocolatey" => await RunCommandAsync(CommandBuilder.BuildChocoUpgrade(pkg.Id, options.Chocolatey), onOutput, onError) == 0,
+                "scoop" => await RunCommandAsync(CommandBuilder.BuildScoopUpgrade(pkg.Id, options.Scoop), onOutput, onError) == 0,
+                _ => false
             };
 
             if (success)
@@ -91,7 +100,7 @@ public static class ExecutionEngine
             }
             else
             {
-                ConsoleHelper.WriteError($"Failed to upgrade {pkg.Source}:{pkg.Id}");
+                onError?.Invoke($"Failed to upgrade {pkg.Source}:{pkg.Id}");
                 allOk = false;
                 if (stopOnFailure) return false;
             }
@@ -101,14 +110,14 @@ public static class ExecutionEngine
         {
             if (!IsEnabled(pkg.Source, options)) continue;
 
-            Console.WriteLine($"Removing {pkg.Source}:{pkg.Id}...");
+            onOutput?.Invoke($"Removing {pkg.Source}:{pkg.Id}...");
 
             bool success = pkg.Source switch
             {
                 "winget" => await manager.UninstallAsync(pkg.Id, options.Winget.AcceptAgreements, !options.Winget.Interactive),
-                "chocolatey" => await RunCommandAsync(CommandBuilder.BuildChocoUninstall(pkg.Id, options.Chocolatey)) == 0,
-                "scoop" => await RunCommandAsync(CommandBuilder.BuildScoopUninstall(pkg.Id, options.Scoop)) == 0,
-                _ => throw new InvalidOperationException($"Unknown source: {pkg.Source}")
+                "chocolatey" => await RunCommandAsync(CommandBuilder.BuildChocoUninstall(pkg.Id, options.Chocolatey), onOutput, onError) == 0,
+                "scoop" => await RunCommandAsync(CommandBuilder.BuildScoopUninstall(pkg.Id, options.Scoop), onOutput, onError) == 0,
+                _ => false
             };
 
             if (success)
@@ -118,7 +127,7 @@ public static class ExecutionEngine
             }
             else
             {
-                ConsoleHelper.WriteError($"Failed to remove {pkg.Source}:{pkg.Id}");
+                onError?.Invoke($"Failed to remove {pkg.Source}:{pkg.Id}");
                 allOk = false;
                 if (stopOnFailure) return false;
             }
@@ -127,7 +136,10 @@ public static class ExecutionEngine
         return allOk;
     }
 
-    internal static async Task<bool> EnsureScoopBucketsAsync(List<ScoopBucket> configuredBuckets)
+    internal static async Task<bool> EnsureScoopBucketsAsync(
+        List<ScoopBucket> configuredBuckets,
+        Action<string>? onOutput = null,
+        Action<string>? onError = null)
     {
         var output = await RunCommandOutputAsync(CommandBuilder.BuildScoopBucketList());
         var addedBuckets = ParseScoopBucketList(output);
@@ -138,11 +150,11 @@ public static class ExecutionEngine
             if (addedBuckets.Contains(bucket.Name, StringComparer.OrdinalIgnoreCase))
                 continue;
 
-            Console.WriteLine($"Adding scoop bucket: {bucket.Name}...");
+            onOutput?.Invoke($"Adding scoop bucket: {bucket.Name}...");
             var exitCode = await RunCommandAsync(CommandBuilder.BuildScoopBucketAdd(bucket.Name, bucket.Url));
             if (exitCode != 0)
             {
-                ConsoleHelper.WriteWarning($"Failed to add scoop bucket: {bucket.Name}");
+                onError?.Invoke($"Failed to add scoop bucket: {bucket.Name}");
                 allOk = false;
                 continue;
             }
@@ -151,7 +163,7 @@ public static class ExecutionEngine
             var reAdded = ParseScoopBucketList(reCheck);
             if (!reAdded.Contains(bucket.Name, StringComparer.OrdinalIgnoreCase))
             {
-                ConsoleHelper.WriteWarning($"Scoop bucket was not added: {bucket.Name}");
+                onError?.Invoke($"Scoop bucket was not added: {bucket.Name}");
                 allOk = false;
             }
         }
@@ -202,7 +214,10 @@ public static class ExecutionEngine
             dict.Remove(pkg.Id);
     }
 
-    internal static async Task<int> RunCommandAsync(string command)
+    internal static async Task<int> RunCommandAsync(
+        string command,
+        Action<string>? onOutput = null,
+        Action<string>? onError = null)
     {
         var psi = new ProcessStartInfo
         {
@@ -219,8 +234,8 @@ public static class ExecutionEngine
         using var process = Process.Start(psi);
         if (process == null) return -1;
 
-        process.OutputDataReceived += (s, e) => { if (e.Data != null) Console.WriteLine(e.Data); };
-        process.ErrorDataReceived += (s, e) => { if (e.Data != null) Console.Error.WriteLine(e.Data); };
+        process.OutputDataReceived += (s, e) => { if (e.Data != null) onOutput?.Invoke(e.Data); };
+        process.ErrorDataReceived += (s, e) => { if (e.Data != null) onError?.Invoke(e.Data); };
 
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();

@@ -428,81 +428,7 @@ public class DiffEngineTests
     }
 
     [Fact]
-    public void PrintDiff_Error_OutputsErrorAndWarnings()
-    {
-        var diff = new DiffResult(Error: "something failed", Warnings: new List<string> { "warn1" });
-        var (stdout, stderr) = CaptureConsole(() => DiffEngine.PrintDiff(diff));
-        stderr.Should().Contain("[error] something failed");
-        stderr.Should().Contain("[warn] warn1");
-    }
-
-    [Fact]
-    public void PrintDiff_WithInstall_OutputsSectionHeader()
-    {
-        var diff = new DiffResult(
-            ToInstall: new List<PackageSpec> { new("pkg1", "1.0", "winget") });
-        var (stdout, _) = CaptureConsole(() => DiffEngine.PrintDiff(diff));
-        stdout.Should().Contain("To install:");
-        stdout.Should().Contain("pkg1");
-    }
-
-    [Fact]
-    public void PrintDiff_WithUpgrade_OutputsSectionHeader()
-    {
-        var diff = new DiffResult(
-            ToUpgrade: new List<PackageSpec> { new("pkg1", "2.0", "chocolatey") });
-        var (stdout, _) = CaptureConsole(() => DiffEngine.PrintDiff(diff));
-        stdout.Should().Contain("To upgrade:");
-        stdout.Should().Contain("pkg1");
-    }
-
-    [Fact]
-    public void PrintDiff_WithSkip_OutputsAlreadyInstalled()
-    {
-        var diff = new DiffResult(
-            ToSkip: new List<PackageSpec> { new("pkg1", "1.0", "scoop") });
-        var (stdout, _) = CaptureConsole(() => DiffEngine.PrintDiff(diff));
-        stdout.Should().Contain("Already installed (skip):");
-        stdout.Should().Contain("pkg1");
-    }
-
-    [Fact]
-    public void PrintDiff_WithRemove_OutputsSectionHeader()
-    {
-        var diff = new DiffResult(
-            ToRemove: new List<PackageSpec> { new("pkg1", "1.0", "winget") });
-        var (stdout, _) = CaptureConsole(() => DiffEngine.PrintDiff(diff));
-        stdout.Should().Contain("To remove:");
-        stdout.Should().Contain("pkg1");
-    }
-
-    [Fact]
-    public void PrintDiff_EmptyDiff_OutputsNothingToDo()
-    {
-        var diff = new DiffResult();
-        var (stdout, _) = CaptureConsole(() => DiffEngine.PrintDiff(diff));
-        stdout.Should().Contain("Nothing to do.");
-    }
-
-    [Fact]
-    public void PrintDiff_WithWarnings_OutputsWarnings()
-    {
-        var diff = new DiffResult(Warnings: new List<string> { "test warning" });
-        var (_, stderr) = CaptureConsole(() => DiffEngine.PrintDiff(diff));
-        stderr.Should().Contain("[warn] test warning");
-    }
-
-    [Fact]
-    public void PrintDiff_NullVersion_ShowsLatest()
-    {
-        var diff = new DiffResult(
-            ToInstall: new List<PackageSpec> { new("pkg1", null, "winget") });
-        var (stdout, _) = CaptureConsole(() => DiffEngine.PrintDiff(diff));
-        stdout.Should().Contain("(latest)");
-    }
-
-    [Fact]
-    public void ComputeDiff_InvalidManagers_ReturnsError()
+    public void ComputeDiff_InvalidManagers_ReturnsWarningInResult()
     {
         var config = new NTIXConfig(
             new NTIXOptions(new WingetOptions(), new ChocoOptions(Enable: false), new ScoopOptions(Enable: false)),
@@ -512,40 +438,19 @@ public class DiffEngineTests
         var diff = DiffEngine.ComputeDiff(config, state);
 
         diff.Error.Should().BeNull();
-        var (_, stderr) = CaptureConsole(() => DiffEngine.ComputeDiff(config, state));
-        stderr.Should().Contain("Chocolatey packages declared but chocolatey not enabled");
+        diff.Warnings.Should().Contain(w => w.Contains("Chocolatey packages declared but chocolatey not enabled"));
     }
 
     [Fact]
-    public void ComputeDiff_ScoopDisabled_WithPackages_GeneratesWarningOnStderr()
+    public void ComputeDiff_ScoopDisabled_WithPackages_GeneratesWarning()
     {
         var config = new NTIXConfig(
             new NTIXOptions(new WingetOptions(), new ChocoOptions(), new ScoopOptions(Enable: false)),
             ScoopPackages: new List<PackageEntry> { new("pkg1", "1.0") });
         var state = new State();
 
-        var (_, stderr) = CaptureConsole(() => DiffEngine.ComputeDiff(config, state));
+        var diff = DiffEngine.ComputeDiff(config, state);
 
-        stderr.Should().Contain("Scoop packages declared but scoop not enabled");
-    }
-
-    private static (string stdout, string stderr) CaptureConsole(Action action)
-    {
-        var originalOut = Console.Out;
-        var originalErr = Console.Error;
-        var stdoutWriter = new StringWriter();
-        var stderrWriter = new StringWriter();
-        Console.SetOut(stdoutWriter);
-        Console.SetError(stderrWriter);
-        try
-        {
-            action();
-            return (stdoutWriter.ToString(), stderrWriter.ToString());
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-            Console.SetError(originalErr);
-        }
+        diff.Warnings.Should().Contain(w => w.Contains("Scoop packages declared but scoop not enabled"));
     }
 }
