@@ -485,4 +485,143 @@ public class ConfigLoaderTests
         act.Should().Throw<InvalidOperationException>()
             .WithMessage("*expects a file path string*");
     }
+
+    [Fact]
+    public void EnsureDefaultConfig_NullPath_CreatesFile()
+    {
+        var testDir = Path.Combine(Path.GetTempPath(), "ntix_test_default_" + Guid.NewGuid());
+        var configPath = Path.Combine(testDir, "config.lua");
+        string? result = null;
+        try
+        {
+            result = ConfigLoader.EnsureDefaultConfig(null);
+            result.Should().EndWith("config.lua");
+            File.Exists(result).Should().BeTrue();
+            var content = File.ReadAllText(result);
+            content.Should().Contain("options");
+            content.Should().Contain("pkgs");
+        }
+        finally
+        {
+            if (result != null && File.Exists(result)) File.Delete(result);
+            if (Directory.Exists(testDir)) Directory.Delete(testDir, true);
+        }
+    }
+
+    [Fact]
+    public void EnsureDefaultConfig_ExplicitPath_ReturnsPath()
+    {
+        var testDir = Path.Combine(Path.GetTempPath(), "ntix_test_explicit_" + Guid.NewGuid());
+        Directory.CreateDirectory(testDir);
+        var configPath = Path.Combine(testDir, "config.lua");
+        try
+        {
+            var result = ConfigLoader.EnsureDefaultConfig(configPath);
+            result.Should().Be(configPath);
+        }
+        finally
+        {
+            Directory.Delete(testDir, true);
+        }
+    }
+
+    [Fact]
+    public void EnsureDefaultConfig_AlreadyExists_DoesNotOverwrite()
+    {
+        var testDir = Path.Combine(Path.GetTempPath(), "ntix_test_exists_" + Guid.NewGuid());
+        Directory.CreateDirectory(testDir);
+        var configPath = Path.Combine(testDir, "config.lua");
+        try
+        {
+            File.WriteAllText(configPath, "custom content");
+            var result = ConfigLoader.EnsureDefaultConfig(configPath);
+            File.ReadAllText(configPath).Should().Be("custom content");
+        }
+        finally
+        {
+            Directory.Delete(testDir, true);
+        }
+    }
+
+    [Fact]
+    public void LoadFromString_ScoopBucketTableForm_ParsesUrl()
+    {
+        var lua = """
+            options = {
+                scoop = {
+                    enable = true,
+                    buckets = {
+                        { name = "main", url = "https://github.com/ScoopInstaller/Main" }
+                    }
+                }
+            }
+            pkgs = {
+                scoop = { "rg" }
+            }
+            return { options = options, pkgs = pkgs }
+            """;
+
+        var config = ConfigLoader.LoadFromString(lua, "test.lua");
+        config.Options.Scoop.Buckets.Should().HaveCount(1);
+        config.Options.Scoop.Buckets[0].Name.Should().Be("main");
+        config.Options.Scoop.Buckets[0].Url.Should().Be("https://github.com/ScoopInstaller/Main");
+    }
+
+    [Fact]
+    public void LoadFromString_ScoopOptions_AllFlags()
+    {
+        var lua = """
+            options = {
+                scoop = {
+                    enable = true,
+                    global = true,
+                    independent = true,
+                    noCache = true,
+                    skipHashCheck = true,
+                    arch = "64bit"
+                }
+            }
+            pkgs = { scoop = { "rg" } }
+            return { options = options, pkgs = pkgs }
+            """;
+
+        var config = ConfigLoader.LoadFromString(lua, "test.lua");
+        config.Options.Scoop.Enable.Should().BeTrue();
+        config.Options.Scoop.Global.Should().BeTrue();
+        config.Options.Scoop.Independent.Should().BeTrue();
+        config.Options.Scoop.NoCache.Should().BeTrue();
+        config.Options.Scoop.SkipHashCheck.Should().BeTrue();
+        config.Options.Scoop.Arch.Should().Be("64bit");
+    }
+
+    [Fact]
+    public void LoadFromString_ChocoOptions_AllFlags()
+    {
+        var lua = """
+            options = {
+                chocolatey = {
+                    enable = true,
+                    yes = true,
+                    force = true,
+                    ignoreDependencies = true,
+                    allowDowngrade = true,
+                    skipPowerShell = true,
+                    params = "/params",
+                    pre = true
+                }
+            }
+            pkgs = { chocolatey = { "git" } }
+            return { options = options, pkgs = pkgs }
+            """;
+
+        var config = ConfigLoader.LoadFromString(lua, "test.lua");
+        config.Options.Chocolatey.Enable.Should().BeTrue();
+        config.Options.Chocolatey.Yes.Should().BeTrue();
+        config.Options.Chocolatey.Force.Should().BeTrue();
+        config.Options.Chocolatey.IgnoreDependencies.Should().BeTrue();
+        config.Options.Chocolatey.AllowDowngrade.Should().BeTrue();
+        config.Options.Chocolatey.SkipPowerShell.Should().BeTrue();
+        config.Options.Chocolatey.Params.Should().Be("/params");
+        config.Options.Chocolatey.Pre.Should().BeTrue();
+    }
 }

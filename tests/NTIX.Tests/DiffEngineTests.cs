@@ -642,4 +642,66 @@ public class DiffEngineTests
         diff.ToInstall[0].Version.Should().Be("2.0");
         diff.ToAdopt.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task ComputeDiff_ChocoNewPkg_ValidationNotFound_AddsWarning()
+    {
+        var mockRunner = new MockCommandRunner
+        {
+            RunAsyncHandler = cmd => cmd.Contains("choco search") ? 1 : 0
+        };
+
+        var installed = new InstalledPackages();
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(), new ChocoOptions(Enable: true), new ScoopOptions()),
+            ChocoPackages: new List<PackageEntry> { new("nonexistent-choco", null) });
+        var state = new State();
+
+        var diff = await DiffEngine.ComputeDiffAsync(config, state, installed);
+
+        diff.Warnings.Should().Contain(w => w.Contains("nonexistent-choco"));
+    }
+
+    [Fact]
+    public async Task ComputeDiff_ScoopNewPkg_ValidationNotFound_AddsWarning()
+    {
+        var mockRunner = new MockCommandRunner
+        {
+            RunAsyncHandler = cmd => cmd.Contains("scoop info") ? 1 : 0
+        };
+
+        var installed = new InstalledPackages();
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(), new ChocoOptions(), new ScoopOptions(Enable: true)),
+            ScoopPackages: new List<PackageEntry> { new("nonexistent-scoop", null) });
+        var state = new State();
+
+        var diff = await DiffEngine.ComputeDiffAsync(config, state, installed);
+
+        diff.Warnings.Should().Contain(w => w.Contains("nonexistent-scoop"));
+    }
+
+    [Fact]
+    public async Task ComputeDiff_WithProgress_ReportsSteps()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.IsInstalled).Returns(true);
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string>());
+        mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, UpgradeInfo>());
+
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(), new ScoopOptions()),
+            WingetPackages: new List<PackageEntry> { new("test-pkg", null) });
+        var state = new State();
+
+        var progressReports = new List<string>();
+        var progress = new Progress<string>(msg => progressReports.Add(msg));
+
+        await DiffEngine.ComputeDiffAsync(config, state, new InstalledPackages(), mockWinget.Object, progress: progress);
+
+        progressReports.Should().Contain(r => r.Contains("Checking package managers"));
+        progressReports.Should().Contain(r => r.Contains("Discovering installed packages"));
+    }
 }

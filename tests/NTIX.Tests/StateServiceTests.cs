@@ -156,4 +156,40 @@ public class StateServiceTests
             if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
         }
     }
+
+    [Fact]
+    public async Task SaveStateAsync_DirectoryFails_ReturnsFalse()
+    {
+        var badPath = Path.Combine(Path.GetTempPath(), "ntix_test_async_impossible<dir", "state.json");
+        var state = new State();
+
+        var result = await StateService.SaveStateAsync(state, badPath);
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SaveStateAsync_ExhaustsRetries_ReturnsFalse()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"ntix_test_async_{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        var stateFilePath = Path.Combine(tempDir, "state.json");
+
+        try
+        {
+            Directory.CreateDirectory(stateFilePath);
+
+            var state = new State
+            {
+                Winget = new Dictionary<string, string> { { "pkg1", "1.0" } }
+            };
+
+            var result = await StateService.SaveStateAsync(state, stateFilePath, maxRetries: 2);
+            result.Should().BeFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(stateFilePath)) Directory.Delete(stateFilePath);
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
 }

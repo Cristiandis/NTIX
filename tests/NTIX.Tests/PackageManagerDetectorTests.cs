@@ -211,4 +211,132 @@ public class PackageManagerDetectorTests
 
         result.Winget.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task ValidateManagersAsync_NullOptions_Defaults()
+    {
+        var config = new NTIXConfig(new NTIXOptions());
+
+        var (valid, error, warnings) = await PackageManagerDetector.ValidateManagersAsync(null!, config);
+
+        valid.Should().BeTrue();
+        error.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ValidateChocoPackageExistsAsync_WithMockRunner()
+    {
+        var runner = new MockCommandRunner
+        {
+            OutputResponses = { ["choco search git"] = "git|2.40.0\n" }
+        };
+
+        var result = await PackageManagerDetector.ValidateChocoPackageExistsAsync("git", runner);
+
+        result.Should().BeTrue();
+        runner.CapturedCommands.Should().Contain(c => c.Contains("choco search"));
+    }
+
+    [Fact]
+    public async Task ValidateChocoPackageExistsAsync_NotFound_ReturnsFalse()
+    {
+        var runner = new MockCommandRunner
+        {
+            OutputResponses = { ["choco search"] = "" }
+        };
+
+        var result = await PackageManagerDetector.ValidateChocoPackageExistsAsync("nonexistent", runner);
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ValidateScoopPackageExistsAsync_WithMockRunner()
+    {
+        var runner = new MockCommandRunner
+        {
+            OutputResponses = { ["scoop info rg"] = "Name        : rg\nVersion     : 14.0.3\n" }
+        };
+
+        var result = await PackageManagerDetector.ValidateScoopPackageExistsAsync("rg", runner);
+
+        result.Should().BeTrue();
+        runner.CapturedCommands.Should().Contain(c => c.Contains("scoop info"));
+    }
+
+    [Fact]
+    public async Task ValidateScoopPackageExistsAsync_NotFound_ReturnsFalse()
+    {
+        var runner = new MockCommandRunner
+        {
+            OutputResponses = { ["scoop info nonexistent"] = "" }
+        };
+
+        var result = await PackageManagerDetector.ValidateScoopPackageExistsAsync("nonexistent", runner);
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ValidateChocoPackagesExistsAsync_MockRunner()
+    {
+        var runner = new MockCommandRunner
+        {
+            OutputResponses = { ["choco search git"] = "git|2.40.0\n" }
+        };
+
+        var result = await PackageManagerDetector.ValidateChocoPackagesExistsAsync(
+            new[] { "git" }, runner);
+
+        result.Should().ContainKey("git");
+        result["git"].Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ValidateScoopPackagesExistsAsync_MockRunner()
+    {
+        var runner = new MockCommandRunner
+        {
+            OutputResponses = { ["scoop info rg"] = "Name        : rg\nVersion     : 14.0.3\n" }
+        };
+
+        var result = await PackageManagerDetector.ValidateScoopPackagesExistsAsync(
+            new[] { "rg" }, runner);
+
+        result.Should().ContainKey("rg");
+        result["rg"].Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task GetChocoUpgradablePackagesAsync_MockRunner()
+    {
+        var runner = new MockCommandRunner
+        {
+            OutputResponses = { ["choco outdated"] = "git|2.30.0|2.40.0|\n" }
+        };
+
+        var result = await PackageManagerDetector.GetChocoUpgradablePackagesAsync(runner);
+
+        result.Should().ContainKey("git");
+        result["git"].CurrentVersion.Should().Be("2.30.0");
+        result["git"].AvailableVersion.Should().Be("2.40.0");
+    }
+
+    [Fact]
+    public async Task GetScoopUpgradablePackagesAsync_MockRunner()
+    {
+        var runner = new MockCommandRunner
+        {
+            OutputResponses =
+            {
+                ["scoop status"] = "[{\"name\":\"rg\",\"current_version\":\"13.0.0\",\"latest_version\":\"14.0.3\"}]"
+            }
+        };
+
+        var result = await PackageManagerDetector.GetScoopUpgradablePackagesAsync(runner);
+
+        result.Should().ContainKey("rg");
+        result["rg"].CurrentVersion.Should().Be("13.0.0");
+        result["rg"].AvailableVersion.Should().Be("14.0.3");
+    }
 }
