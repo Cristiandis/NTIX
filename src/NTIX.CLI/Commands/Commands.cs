@@ -31,6 +31,9 @@ public partial class ApplyCommand : ICommand
     [CommandOption("adopt", Description = "Adopt already-installed packages into NTIX state")]
     public bool Adopt { get; set; }
 
+    [CommandOption("upgrade", 'u', Description = "Check for and apply available upgrades")]
+    public bool Upgrade { get; set; }
+
     [SupportedOSPlatform("windows")]
     public async ValueTask ExecuteAsync(IConsole console)
     {
@@ -61,7 +64,7 @@ public partial class ApplyCommand : ICommand
             .StartAsync($"[bold]{configFileName}[/]", async ctx =>
             {
                 var progress = new Progress<string>(s => ctx.Status($"[dim]{s}[/]"));
-                diff = await DiffEngine.ComputeDiffAsync(config, state, progress: progress, adoptMode: Adopt);
+                diff = await DiffEngine.ComputeDiffAsync(config, state, progress: progress, adoptMode: Adopt, upgradeMode: Upgrade);
             });
 
         var tree = CommandsHelper.BuildDiffTree(configFileName, config, diff);
@@ -111,6 +114,9 @@ public partial class DiffCommand : ICommand
     [CommandOption("adopt", Description = "Show packages that would be adopted")]
     public bool Adopt { get; set; }
 
+    [CommandOption("upgrade", 'u', Description = "Check for and apply available upgrades")]
+    public bool Upgrade { get; set; }
+
     public async ValueTask ExecuteAsync(IConsole console)
     {
         var isNew = ConfigPath is null && !File.Exists(ConfigLoader.DefaultConfigPath);
@@ -132,7 +138,7 @@ public partial class DiffCommand : ICommand
             .StartAsync($"[bold]{configFileName}[/]", async ctx =>
             {
                 var progress = new Progress<string>(s => ctx.Status($"[dim]{s}[/]"));
-                diff = await DiffEngine.ComputeDiffAsync(config, state, progress: progress, adoptMode: Adopt);
+                diff = await DiffEngine.ComputeDiffAsync(config, state, progress: progress, adoptMode: Adopt, upgradeMode: Upgrade);
             });
 
         var tree = CommandsHelper.BuildDiffTree(configFileName, config, diff);

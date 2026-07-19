@@ -12,6 +12,7 @@ public static class DiffEngine
         IWingetManager? wingetManager = null,
         bool validatePackages = true,
         bool adoptMode = false,
+        bool upgradeMode = false,
         IProgress<string>? progress = null)
     {
         progress?.Report("Checking package managers...");
@@ -43,13 +44,13 @@ public static class DiffEngine
         var scoopEnabled = config.Options?.Scoop?.Enable ?? false;
 
         progress?.Report("Checking for updates...");
-        var wingetUpgradable = (hasWingetUnpinned && wingetEnabled)
+        var wingetUpgradable = (upgradeMode && hasWingetUnpinned && wingetEnabled)
             ? await PackageManagerDetector.GetWingetUpgradablePackagesAsync(() => wingetManager ?? new WingetManager())
             : new Dictionary<string, UpgradeInfo>();
-        var chocoUpgradable = (hasChocoUnpinned && chocoEnabled)
+        var chocoUpgradable = (upgradeMode && hasChocoUnpinned && chocoEnabled)
             ? PackageManagerDetector.GetChocoUpgradablePackages()
             : new Dictionary<string, UpgradeInfo>();
-        var scoopUpgradable = (hasScoopUnpinned && scoopEnabled)
+        var scoopUpgradable = (upgradeMode && hasScoopUnpinned && scoopEnabled)
             ? PackageManagerDetector.GetScoopUpgradablePackages()
             : new Dictionary<string, UpgradeInfo>();
 

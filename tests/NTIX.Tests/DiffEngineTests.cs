@@ -76,7 +76,7 @@ public class DiffEngineTests
             new List<PackageEntry> { new("mocked-pkg", null) });
         var state = new State();
         
-        var diff = await DiffEngine.ComputeDiffAsync(config, state, wingetManager: mockWinget.Object);
+        var diff = await DiffEngine.ComputeDiffAsync(config, state, wingetManager: mockWinget.Object, upgradeMode: true);
         
         diff.ToUpgrade.Should().HaveCount(1);
         diff.ToUpgrade[0].Id.Should().Be("mocked-pkg");
@@ -139,7 +139,7 @@ public class DiffEngineTests
             new List<PackageEntry> { new("upgradable-pkg", null) });
         var state = new State { Winget = new Dictionary<string, string> { { "upgradable-pkg", "1.0" } } };
 
-        var diff = await DiffEngine.ComputeDiffAsync(config, state, wingetManager: mockWinget.Object);
+        var diff = await DiffEngine.ComputeDiffAsync(config, state, wingetManager: mockWinget.Object, upgradeMode: true);
 
         diff.ToUpgrade.Should().HaveCount(1);
         diff.ToUpgrade[0].Id.Should().Be("upgradable-pkg");
@@ -169,6 +169,36 @@ public class DiffEngineTests
 
         diff.ToSkip.Should().HaveCount(1);
         diff.ToSkip[0].Id.Should().Be("current-pkg");
+        diff.ToUpgrade.Should().BeEmpty();
+        diff.ToInstall.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ComputeDiff_NoUpgradeFlag_UpgradablePkg_ToSkip()
+    {
+        var mockWinget = new Mock<IWingetManager>();
+        mockWinget.Setup(m => m.IsInstalled).Returns(true);
+        mockWinget.Setup(m => m.GetInstalledPackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string> { { "upgradable-pkg", "1.0" } });
+        mockWinget.Setup(m => m.GetUpgradablePackagesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, UpgradeInfo>
+            {
+                { "upgradable-pkg", new UpgradeInfo("1.0", "2.0") }
+            });
+
+        var installed = new InstalledPackages
+        {
+            Winget = new Dictionary<string, string> { { "upgradable-pkg", "1.0" } }
+        };
+        var config = new NTIXConfig(
+            new NTIXOptions(new WingetOptions(Enable: true), new ChocoOptions(), new ScoopOptions()),
+            new List<PackageEntry> { new("upgradable-pkg", null) });
+        var state = new State { Winget = new Dictionary<string, string> { { "upgradable-pkg", "1.0" } } };
+
+        var diff = await DiffEngine.ComputeDiffAsync(config, state, installed, mockWinget.Object, upgradeMode: false);
+
+        diff.ToSkip.Should().HaveCount(1);
+        diff.ToSkip[0].Id.Should().Be("upgradable-pkg");
         diff.ToUpgrade.Should().BeEmpty();
         diff.ToInstall.Should().BeEmpty();
     }
