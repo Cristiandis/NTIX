@@ -19,3 +19,6 @@ post-announce-jobs = ["./scoop-publish"]
 # Build dependencies to install on CI for the windows-gnu target
 [dist.dependencies.chocolatey]
 mingw = "*"
+
+[dist.github-custom-runners]
+aarch64-pc-windows-msvc = "windows-11-arm"
