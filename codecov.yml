@@ -10,7 +10,7 @@ coverage:
         threshold: 5%
 
 ignore:
-  - "src/NTIX.Cli/**"
+  - "src/main.rs"
   - "examples/**"
   - "tests/**"
 
@@ -22,5 +22,5 @@ comment:
 flags:
   unittests:
     paths:
-      - "src/NTIX.Core/"
+      - "src/"
     carryforward: true

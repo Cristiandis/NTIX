@@ -1,9 +1,0 @@
-<Solution>
-  <Folder Name="/src/">
-    <Project Path="src/NTIX.Cli/NTIX.Cli.csproj" />
-    <Project Path="src/NTIX.Core/NTIX.Core.csproj" />
-  </Folder>
-  <Folder Name="/tests/">
-    <Project Path="tests/NTIX.Tests/NTIX.Tests.csproj" />
-  </Folder>
-</Solution>

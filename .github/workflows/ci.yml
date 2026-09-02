@@ -4,44 +4,46 @@ on:
   pull_request:
     branches: [master]
 
+permissions:
+  contents: read
+
 jobs:
-  build-and-test:
+  test:
     runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          dotnet-version: 10.x
+          targets: x86_64-pc-windows-gnu,aarch64-pc-windows-msvc
+          components: llvm-tools-preview
 
-      - name: Restore
-        run: dotnet restore
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
 
-      - name: Build
-        run: dotnet build --no-restore -c Release
+      - name: Install Mingw-w64 linker
+        run: choco install mingw -y
+
+      - name: Build (x64 gnu)
+        run: cargo build --all-targets --target x86_64-pc-windows-gnu
+
+      - name: Build (arm64 msvc)
+        run: cargo build --all-targets --target aarch64-pc-windows-msvc
+
+      - name: Test
+        run: cargo test --target x86_64-pc-windows-gnu
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Test with coverage
-        run: >
-          dotnet test --no-restore -c Release
-          /p:AltCover=true
-          /p:AltCoverCobertura=coverage.xml
-          /p:AltCoverAssemblyExcludeFilter="NTIX.Tests|xunit|testhost|AltCover|Moq|Microsoft|FluentAssertions"
+        run: cargo llvm-cov --target x86_64-pc-windows-gnu --lcov --output-path lcov.info
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          files: tests/NTIX.Tests/coverage.xml
+          files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
-
-      - name: Publish Native AOT
-        run: dotnet publish src/NTIX.Cli/NTIX.CLI.csproj -r win-x64 -c Release
-
-      - name: Upload AOT artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ntix-win-x64
-          path: src/NTIX.Cli/bin/Release/net10.0/win-x64/publish/
-          if-no-files-found: warn
