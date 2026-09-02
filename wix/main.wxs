@@ -69,7 +69,7 @@
 
         <Package Id='*'
             Keywords='Installer'
-            Description='NTIX: upgrade tools and keep tool configuration synchronized from a central source of truth.'
+            Description='nix-like utility for windows'
             Manufacturer='Cristiandis'
             InstallerVersion='450'
             Languages='1033'
