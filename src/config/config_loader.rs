@@ -10,6 +10,7 @@ use std::{
 use mlua::{Lua, MultiValue, Table, Value};
 
 use crate::models::{
+    config_file::ConfigFileEntry,
     import_node::{ImportNode, ImportNodeBuilder, ImportNodeBuilderRef},
     ntix_config::NTIXConfig,
     options::{ChocoOptions, NTIXOptions, ScoopBucket, ScoopOptions, WingetOptions},
@@ -82,11 +83,13 @@ pub fn load_from_string(
 
     let global_options = state.create_table()?;
     let global_pkgs = state.create_table()?;
+    let global_config_files = state.create_table()?;
     for key in PACKAGE_LIST_KEYS {
         global_pkgs.set(key, state.create_table()?)?;
     }
     state.globals().set("options", &global_options)?;
     state.globals().set("pkgs", &global_pkgs)?;
+    state.globals().set("configFiles", &global_config_files)?;
 
     let import_root = ImportNodeBuilder::new(&config_path);
     register_import_function(
@@ -94,6 +97,7 @@ pub fn load_from_string(
         &full_config_path,
         &global_options,
         &global_pkgs,
+        &global_config_files,
         Rc::clone(&import_root),
     )?;
 
@@ -111,6 +115,16 @@ pub fn load_from_string(
         .into_iter()
         .next()
         .ok_or_else(|| -> Box<dyn Error> { "Lua script returned no value".into() })?;
+
+    // Fold the root's own `configFiles` (if any) into the global table so that
+    // entries declared both at the top level and via imports are preserved, then
+    // expose the combined table on the root result before parsing.
+    if let Value::Table(root_table) = &first_result {
+        if let Ok(Value::Table(root_cf)) = root_table.get::<Value>("configFiles") {
+            deep_merge_table(&global_config_files, &root_cf)?;
+        }
+        root_table.set("configFiles", &global_config_files)?;
+    }
 
     let config = parse_config(first_result, config_path.clone())?;
 
@@ -132,6 +146,7 @@ fn register_import_function(
     root_config_path: &Path,
     global_options: &Table,
     global_pkgs: &Table,
+    global_config_files: &Table,
     import_root: ImportNodeBuilderRef,
 ) -> mlua::Result<()> {
     let directory_stack: Rc<RefCell<Vec<PathBuf>>> = Rc::new(RefCell::new(vec![
@@ -146,6 +161,7 @@ fn register_import_function(
     let root_config_path_c = root_config_path.to_path_buf();
     let global_options_c = global_options.clone();
     let global_pkgs_c = global_pkgs.clone();
+    let global_config_files_c = global_config_files.clone();
     let directory_stack_c = Rc::clone(&directory_stack);
     let node_stack_c = Rc::clone(&node_stack);
 
@@ -238,7 +254,13 @@ fn register_import_function(
             let import_results = result?;
 
             if let Some(Value::Table(returned)) = import_results.into_iter().next() {
-                merge_returned_table(lua, &global_options_c, &global_pkgs_c, &returned)?;
+                merge_returned_table(
+                    lua,
+                    &global_options_c,
+                    &global_pkgs_c,
+                    &global_config_files_c,
+                    &returned,
+                )?;
             }
         }
 
@@ -252,6 +274,7 @@ fn merge_returned_table(
     lua: &Lua,
     global_options: &Table,
     global_pkgs: &Table,
+    global_config_files: &Table,
     returned: &Table,
 ) -> mlua::Result<()> {
     if let Ok(Value::Table(returned_options)) = returned.get::<Value>("options") {
@@ -272,6 +295,10 @@ fn merge_returned_table(
                 merge_packages_deduped(&target, &sub_table)?;
             }
         }
+    }
+
+    if let Ok(Value::Table(returned_config_files)) = returned.get::<Value>("configFiles") {
+        deep_merge_table(global_config_files, &returned_config_files)?;
     }
 
     Ok(())
@@ -347,10 +374,7 @@ fn extract_id(entry: &Value) -> mlua::Result<Option<String>> {
     }
 }
 
-fn parse_config(
-    result: mlua::Value,
-    config_path: PathBuf,
-) -> Result<NTIXConfig, Box<dyn Error>> {
+fn parse_config(result: mlua::Value, config_path: PathBuf) -> Result<NTIXConfig, Box<dyn Error>> {
     let table = match result {
         Value::Table(t) => t,
         other => {
@@ -374,13 +398,80 @@ fn parse_config(
     let options = read_options(&table.get("options")?)?;
     let pkgs: Table = table.get("pkgs")?;
 
+    let config_files = match table.get::<Value>("configFiles")? {
+        Value::Table(t) => read_config_files(&t, &config_path)?,
+        Value::Nil => Vec::new(),
+        other => {
+            return Err(format!(
+                "Config error: 'configFiles' must be a table keyed by destination path (got {}): {}",
+                other.type_name(),
+                config_path.display()
+            )
+            .into());
+        }
+    };
+
     Ok(NTIXConfig {
         options,
         winget_packages: read_package_list(&pkgs, "winget")?,
         choco_packages: read_package_list(&pkgs, "chocolatey")?,
         scoop_packages: read_package_list(&pkgs, "scoop")?,
+        config_files,
         imports: Vec::new(),
     })
+}
+
+fn read_config_files(table: &Table, config_path: &Path) -> mlua::Result<Vec<ConfigFileEntry>> {
+    let root_dir = config_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default();
+
+    let mut entries = Vec::new();
+
+    for pair in table.clone().pairs::<Value, Value>() {
+        let (key, value) = pair?;
+
+        let dest_str = match key {
+            Value::String(s) => s.to_str()?.to_string(),
+            _ => continue,
+        };
+
+        let dest = PathBuf::from(&dest_str);
+        if !dest.is_absolute() {
+            return Err(mlua::Error::RuntimeError(format!(
+                "Config error: configFiles destination must be an absolute path: {}",
+                dest_str
+            )));
+        }
+
+        let src_str = match value {
+            Value::String(s) => s.to_str()?.to_string(),
+            _ => {
+                return Err(mlua::Error::RuntimeError(format!(
+                    "Config error: configFiles entry for '{}' must be a source path string",
+                    dest_str
+                )));
+            }
+        };
+
+        let mut src = PathBuf::from(&src_str);
+        if !src.is_absolute() {
+            src = root_dir.join(&src);
+        }
+
+        if !src.is_file() {
+            return Err(mlua::Error::RuntimeError(format!(
+                "Config error: source file not found for configFiles entry '{}': {}",
+                dest_str,
+                src.display()
+            )));
+        }
+
+        entries.push(ConfigFileEntry { dest, src });
+    }
+
+    Ok(entries)
 }
 
 fn read_options(options: &Table) -> mlua::Result<NTIXOptions> {

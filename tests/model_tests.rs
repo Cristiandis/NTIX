@@ -30,7 +30,7 @@ fn state_default_empty_dictionaries() {
     assert!(state.winget.is_empty());
     assert!(state.chocolatey.is_empty());
     assert!(state.scoop.is_empty());
-    assert_eq!(state.version, 1);
+    assert_eq!(state.version, 2);
 }
 
 #[test]

@@ -32,11 +32,13 @@ fn validate_managers_chocolatey_enabled_not_installed_warns_and_continues() {
 
     let result = package_manager_detector::validate_managers(&options, &config, Some(&presence));
     assert!(!result.choco_installed);
-    assert!(result
-        .warnings
-        .iter()
-        .any(|w| w.contains("Chocolatey is enabled but not installed")
-            && w.contains("chocolatey.org/install")));
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|w| w.contains("Chocolatey is enabled but not installed")
+                && w.contains("chocolatey.org/install"))
+    );
 }
 
 #[test]
@@ -67,10 +69,12 @@ fn validate_managers_scoop_enabled_not_installed_warns_and_continues() {
 
     let result = package_manager_detector::validate_managers(&options, &config, Some(&presence));
     assert!(!result.scoop_installed);
-    assert!(result
-        .warnings
-        .iter()
-        .any(|w| w.contains("Scoop is enabled but not installed") && w.contains("scoop.sh")));
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|w| w.contains("Scoop is enabled but not installed") && w.contains("scoop.sh"))
+    );
 }
 
 #[test]
@@ -101,9 +105,9 @@ fn validate_managers_chocolatey_packages_not_enabled_returns_warning() {
     };
 
     let result = package_manager_detector::validate_managers(&options, &config, None);
-    assert!(result.warnings.iter().any(|w| w.contains(
-        "[warn] Chocolatey packages declared but chocolatey not enabled in options"
-    )));
+    assert!(result.warnings.iter().any(|w| {
+        w.contains("[warn] Chocolatey packages declared but chocolatey not enabled in options")
+    }));
 }
 
 #[test]
@@ -119,9 +123,12 @@ fn validate_managers_scoop_packages_not_enabled_returns_warning() {
     };
 
     let result = package_manager_detector::validate_managers(&options, &config, None);
-    assert!(result.warnings.iter().any(|w| w.contains(
-        "[warn] Scoop packages declared but scoop not enabled in options"
-    )));
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|w| w.contains("[warn] Scoop packages declared but scoop not enabled in options"))
+    );
 }
 
 #[test]

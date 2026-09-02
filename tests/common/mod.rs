@@ -231,7 +231,10 @@ impl WingetManagerTrait for MockWingetManager {
         &self,
         id: &str,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        self.package_exists_calls.lock().unwrap().push(id.to_string());
+        self.package_exists_calls
+            .lock()
+            .unwrap()
+            .push(id.to_string());
         if self.package_exists_throw {
             return Err("network error".into());
         }

@@ -33,9 +33,13 @@ pub async fn compute_diff(
     progress: &ProgressBar,
 ) -> Result<DiffResult, Box<dyn Error>> {
     progress.set_message("Checking package managers...");
-    let validation =
-        package_manager_detector::validate_managers_async(&config.options, config, winget_manager, presence)
-            .await;
+    let validation = package_manager_detector::validate_managers_async(
+        &config.options,
+        config,
+        winget_manager,
+        presence,
+    )
+    .await;
 
     let mut result = DiffResult {
         warnings: validation.warnings,
@@ -122,7 +126,12 @@ pub async fn compute_diff(
 
     progress.set_message("Finding orphans...");
     if validation.winget_installed {
-        find_orphans(&mut result, &state.winget, &config.winget_packages, "winget");
+        find_orphans(
+            &mut result,
+            &state.winget,
+            &config.winget_packages,
+            "winget",
+        );
     }
     if validation.choco_installed {
         find_orphans(
@@ -344,17 +353,15 @@ async fn validate_package_availability(
         for pkg in pkgs {
             match results.get(&pkg.id) {
                 Some(Some(false)) => {
-                    result.warnings.push(format!(
-                        "Package not found in {source}: {}",
-                        pkg.id
-                    ));
+                    result
+                        .warnings
+                        .push(format!("Package not found in {source}: {}", pkg.id));
                     invalid.insert(pkg.id.clone());
                 }
                 Some(None) | None => {
-                    result.warnings.push(format!(
-                        "Could not verify package in {source}: {}",
-                        pkg.id
-                    ));
+                    result
+                        .warnings
+                        .push(format!("Could not verify package in {source}: {}", pkg.id));
                 }
                 Some(Some(true)) => {}
             }
@@ -378,4 +385,46 @@ fn extract_pkgs_to_install(result: &DiffResult, source: &str) -> Vec<PackageSpec
         .filter(|p| p.source == source)
         .cloned()
         .collect()
+}
+
+/// Classifies the config-file state for `config` relative to `state`, populating
+/// the `config_files_*` lists on `result`. Only called when the caller opted in
+/// with `-c`/`--apply-configs`; otherwise config files are ignored entirely.
+pub fn compute_config_files_diff(result: &mut DiffResult, config: &NTIXConfig, state: &State) {
+    let mut seen_dests: HashSet<String> = HashSet::new();
+
+    for entry in &config.config_files {
+        let dest_str = entry.dest.to_string_lossy().to_string();
+        seen_dests.insert(dest_str.clone());
+
+        match std::fs::read(&entry.src) {
+            Ok(src_bytes) => {
+                let src_hash = crate::hash::sha256_hex(&src_bytes);
+                match state.config_files.get(&dest_str) {
+                    Some(stored) if *stored == src_hash => {
+                        result.config_files_to_skip.push(entry.clone());
+                    }
+                    Some(_) => {
+                        result.config_files_to_update.push(entry.clone());
+                    }
+                    None => {
+                        result.config_files_to_create.push(entry.clone());
+                    }
+                }
+            }
+            Err(_) => {
+                result.warnings.push(format!(
+                    "Could not read config file source '{}' for '{}'",
+                    entry.src.display(),
+                    dest_str
+                ));
+            }
+        }
+    }
+
+    for dest in state.config_files.keys() {
+        if !seen_dests.contains(dest) {
+            result.config_files_no_longer_managed.push(dest.clone());
+        }
+    }
 }

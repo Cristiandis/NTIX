@@ -44,6 +44,7 @@ pub async fn apply_diff(
     winget_manager: Option<&dyn WingetManagerTrait>,
     presence: Option<&dyn ManagerPresence>,
     config: Option<&NTIXConfig>,
+    apply_config: bool,
     on_output: Option<LineCallback<'_>>,
     on_error: Option<LineCallback<'_>>,
     runner: Option<&dyn CommandRunner>,
@@ -76,8 +77,10 @@ pub async fn apply_diff(
         (&diff.to_remove, Operation::Remove),
     ] {
         for pkg in pkgs {
-            if !run_operation(cmd, manager, options, state, state_path, operation, pkg, on_output, on_error)
-                .await
+            if !run_operation(
+                cmd, manager, options, state, state_path, operation, pkg, on_output, on_error,
+            )
+            .await
             {
                 all_ok = false;
                 if stop_on_failure {
@@ -94,7 +97,88 @@ pub async fn apply_diff(
         update_state(state, pkg, true);
     }
 
+    if apply_config {
+        apply_config_files(
+            state,
+            &diff.config_files_to_create,
+            &diff.config_files_to_update,
+            &diff.config_files_no_longer_managed,
+            on_output,
+            on_error,
+        );
+        let _ = state_service::save_state(state, Some(state_path), DEFAULT_MAX_RETRIES);
+    }
+
     all_ok
+}
+
+/// Copies managed config files from their resolved sources to their destinations
+/// and updates the tracked hashes in `state`. Orphaned (no longer managed) files
+/// are dropped from tracking without touching the file on disk.
+fn apply_config_files(
+    state: &mut State,
+    to_create: &[crate::models::config_file::ConfigFileEntry],
+    to_update: &[crate::models::config_file::ConfigFileEntry],
+    no_longer_managed: &[String],
+    on_output: Option<LineCallback<'_>>,
+    on_error: Option<LineCallback<'_>>,
+) {
+    for entry in to_create.iter().chain(to_update.iter()) {
+        let dest_str = entry.dest.to_string_lossy().to_string();
+        if let Some(cb) = on_output {
+            cb(&format!("Applying config file: {dest_str}"));
+        }
+
+        match std::fs::read(&entry.src) {
+            Ok(src_bytes) => {
+                if let Err(msg) = ensure_parent_dir(&entry.dest) {
+                    if let Some(cb) = on_error {
+                        cb(&format!(
+                            "Failed to create directory for config file {dest_str}: {msg}"
+                        ));
+                    }
+                    continue;
+                }
+
+                match std::fs::write(&entry.dest, &src_bytes) {
+                    Ok(()) => {
+                        state
+                            .config_files
+                            .insert(dest_str, crate::hash::sha256_hex(&src_bytes));
+                    }
+                    Err(e) => {
+                        if let Some(cb) = on_error {
+                            cb(&format!("Failed to write config file {dest_str}: {e}"));
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                if let Some(cb) = on_error {
+                    cb(&format!(
+                        "Failed to read config file source '{}': {e}",
+                        entry.src.display()
+                    ));
+                }
+            }
+        }
+    }
+
+    for dest in no_longer_managed {
+        state.config_files.remove(dest);
+    }
+}
+
+/// Creates the parent directory of `dest` if it exists and is not the
+/// filesystem root. Returns an error message on failure.
+fn ensure_parent_dir(dest: &std::path::Path) -> Result<(), String> {
+    let Some(parent) = dest.parent() else {
+        return Ok(());
+    };
+    if parent.as_os_str().is_empty() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())
 }
 
 async fn apply_buckets(
@@ -203,8 +287,7 @@ async fn run_operation(
                     .await
             }
             Operation::Remove => {
-                let build_result =
-                    command_builder::build_winget_uninstall(&pkg.id, options.winget);
+                let build_result = command_builder::build_winget_uninstall(&pkg.id, options.winget);
                 run_built_command(cmd, build_result, on_output, on_error).await
             }
         },

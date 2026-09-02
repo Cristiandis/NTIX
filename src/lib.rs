@@ -1,6 +1,7 @@
 pub mod config;
 pub mod diff;
 pub mod execution;
+pub mod hash;
 pub mod lock;
 pub mod models;
 pub mod package_manager;

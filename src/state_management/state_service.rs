@@ -29,7 +29,14 @@ pub fn load_state(path: Option<&Path>) -> Option<State> {
     }
 
     let json = fs::read_to_string(&state_path).ok()?;
-    serde_json::from_str(&json).ok()
+    Some(migrate_state(serde_json::from_str(&json).ok()?))
+}
+
+fn migrate_state(mut state: State) -> State {
+    if state.version < 2 {
+        state.version = 2;
+    }
+    state
 }
 
 pub fn save_state(

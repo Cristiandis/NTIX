@@ -1,4 +1,6 @@
-use crate::models::{import_node::ImportNode, package_entry::PackageEntry};
+use crate::models::{
+    config_file::ConfigFileEntry, import_node::ImportNode, package_entry::PackageEntry,
+};
 
 use super::options::NTIXOptions;
 
@@ -8,5 +10,6 @@ pub struct NTIXConfig {
     pub winget_packages: Vec<PackageEntry>,
     pub choco_packages: Vec<PackageEntry>,
     pub scoop_packages: Vec<PackageEntry>,
+    pub config_files: Vec<ConfigFileEntry>,
     pub imports: Vec<ImportNode>,
 }

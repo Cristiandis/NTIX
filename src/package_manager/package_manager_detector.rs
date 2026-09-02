@@ -50,7 +50,13 @@ pub async fn validate_managers_async(
     }
 
     ValidationResult {
-        warnings: collect_warnings(options, config, winget_installed, choco_installed, scoop_installed),
+        warnings: collect_warnings(
+            options,
+            config,
+            winget_installed,
+            choco_installed,
+            scoop_installed,
+        ),
         winget_installed,
         choco_installed,
         scoop_installed,
@@ -72,9 +78,7 @@ pub fn validate_managers(
     }
 }
 
-fn check_choco_scoop(
-    presence: Option<&dyn ManagerPresence>,
-) -> (bool, bool) {
+fn check_choco_scoop(presence: Option<&dyn ManagerPresence>) -> (bool, bool) {
     let choco_installed = match presence {
         Some(p) => p.is_chocolatey_installed(),
         None => is_chocolatey_installed(),
@@ -148,7 +152,9 @@ pub async fn get_installed_packages_async(
         }
     }
 
-    let choco_out = cmd.run_output("choco list -r --local-only --limit-output 2>nul", true).await;
+    let choco_out = cmd
+        .run_output("choco list -r --local-only --limit-output 2>nul", true)
+        .await;
     if !choco_out.is_empty() {
         let regex = Regex::new(r"(?m)^([^|]+)\|([^|]+)$").unwrap();
         for cap in regex.captures_iter(&choco_out) {
@@ -190,10 +196,7 @@ pub async fn get_winget_upgradable_packages_async(
     winget_manager: Option<&dyn WingetManagerTrait>,
 ) -> HashMap<String, UpgradeInfo> {
     let manager: &dyn WingetManagerTrait = winget_manager.unwrap_or(&WingetManager);
-    manager
-        .get_upgradable_packages()
-        .await
-        .unwrap_or_default()
+    manager.get_upgradable_packages().await.unwrap_or_default()
 }
 
 pub async fn get_choco_upgradable_packages_async(
@@ -202,7 +205,9 @@ pub async fn get_choco_upgradable_packages_async(
     let cmd: &dyn CommandRunner = runner.unwrap_or(&ProcessCommandRunner);
 
     let mut result = HashMap::new();
-    let output = cmd.run_output("choco outdated --limit-output 2>nul", true).await;
+    let output = cmd
+        .run_output("choco outdated --limit-output 2>nul", true)
+        .await;
     if output.is_empty() {
         return result;
     }
@@ -232,17 +237,22 @@ pub async fn get_scoop_upgradable_packages_async(
     }
 
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(&output)
-        && let Some(items) = value.as_array() {
-            for item in items {
-                let id = item.get("name").and_then(|v| v.as_str());
-                let cur = item.get("current_version").and_then(|v| v.as_str());
-                let avail = item.get("latest_version").and_then(|v| v.as_str());
-                if let (Some(id), Some(cur), Some(avail)) = (id, cur, avail)
-                    && !id.is_empty() && !cur.is_empty() && !avail.is_empty() && cur != avail {
-                        result.insert(id.to_string(), UpgradeInfo::new(cur, avail));
-                    }
+        && let Some(items) = value.as_array()
+    {
+        for item in items {
+            let id = item.get("name").and_then(|v| v.as_str());
+            let cur = item.get("current_version").and_then(|v| v.as_str());
+            let avail = item.get("latest_version").and_then(|v| v.as_str());
+            if let (Some(id), Some(cur), Some(avail)) = (id, cur, avail)
+                && !id.is_empty()
+                && !cur.is_empty()
+                && !avail.is_empty()
+                && cur != avail
+            {
+                result.insert(id.to_string(), UpgradeInfo::new(cur, avail));
             }
         }
+    }
 
     result
 }

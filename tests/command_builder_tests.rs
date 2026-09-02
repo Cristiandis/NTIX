@@ -29,7 +29,8 @@ fn build_choco_install_with_version_uses_version_flag() {
 
 #[test]
 fn build_choco_install_without_version_no_version_flag() {
-    let cmd = command_builder::build_choco_install("nodejs", None, ChocoOptions::default()).unwrap();
+    let cmd =
+        command_builder::build_choco_install("nodejs", None, ChocoOptions::default()).unwrap();
     assert_eq!(cmd, "choco install nodejs");
 }
 
@@ -114,14 +115,16 @@ fn build_choco_install_all_flags() {
 
 #[test]
 fn build_scoop_install_basic() {
-    let cmd = command_builder::build_scoop_install("nodejs", None, ScoopOptions::default()).unwrap();
+    let cmd =
+        command_builder::build_scoop_install("nodejs", None, ScoopOptions::default()).unwrap();
     assert_eq!(cmd, "scoop install nodejs");
 }
 
 #[test]
 fn build_scoop_install_with_version_uses_at_syntax() {
-    let cmd = command_builder::build_scoop_install("nodejs", Some("16.14.2"), ScoopOptions::default())
-        .unwrap();
+    let cmd =
+        command_builder::build_scoop_install("nodejs", Some("16.14.2"), ScoopOptions::default())
+            .unwrap();
     assert_eq!(cmd, "scoop install nodejs@16.14.2");
 }
 
@@ -313,10 +316,15 @@ fn build_scoop_bucket_add_with_name_only() {
 
 #[test]
 fn build_scoop_bucket_add_with_url() {
-    let cmd =
-        command_builder::build_scoop_bucket_add("ntix", Some("https://github.com/Cristiandis/scoop-ntix"))
-            .unwrap();
-    assert_eq!(cmd, "scoop bucket add ntix https://github.com/Cristiandis/scoop-ntix");
+    let cmd = command_builder::build_scoop_bucket_add(
+        "ntix",
+        Some("https://github.com/Cristiandis/scoop-ntix"),
+    )
+    .unwrap();
+    assert_eq!(
+        cmd,
+        "scoop bucket add ntix https://github.com/Cristiandis/scoop-ntix"
+    );
 }
 
 #[test]

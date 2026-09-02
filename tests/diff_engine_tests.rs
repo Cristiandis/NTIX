@@ -23,11 +23,7 @@ fn pkg_entry(id: &str, version: Option<&str>) -> PackageEntry {
     }
 }
 
-fn ntix_config(
-    winget: WingetOptions,
-    choco: ChocoOptions,
-    scoop: ScoopOptions,
-) -> NTIXConfig {
+fn ntix_config(winget: WingetOptions, choco: ChocoOptions, scoop: ScoopOptions) -> NTIXConfig {
     NTIXConfig {
         options: NTIXOptions {
             winget,
@@ -53,7 +49,8 @@ async fn diff_with(
     compute_diff(
         config,
         state,
-        winget_manager.map(|m| m as &dyn ntix_rs::package_manager::winget_manager_trait::WingetManagerTrait),
+        winget_manager
+            .map(|m| m as &dyn ntix_rs::package_manager::winget_manager_trait::WingetManagerTrait),
         Some(&MockManagerPresence::new()),
         runner.map(|r| r as &dyn ntix_rs::package_manager::command_runner::CommandRunner),
         adopt_mode,
@@ -104,7 +101,17 @@ async fn compute_diff_package_in_config_not_in_state_to_install() {
     let mut config = config;
     config.winget_packages = vec![pkg_entry("testpkg", None)];
     let state = State::default();
-    let diff = diff_with(&config, &state, None, Some(&mock), None, false, false, false).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        None,
+        Some(&mock),
+        None,
+        false,
+        false,
+        false,
+    )
+    .await;
     assert_eq!(diff.to_install.len(), 1);
     assert_eq!(diff.to_install[0].id, "testpkg");
 }
@@ -113,9 +120,7 @@ async fn compute_diff_package_in_config_not_in_state_to_install() {
 async fn compute_diff_package_in_state_not_in_config_to_remove() {
     let config = NTIXConfig::default();
     let mut state = State::default();
-    state
-        .winget
-        .insert("oldpkg".to_string(), "1.0".to_string());
+    state.winget.insert("oldpkg".to_string(), "1.0".to_string());
     let diff = diff_with(&config, &state, None, None, None, true, false, false).await;
     assert_eq!(diff.to_remove.len(), 1);
     assert_eq!(diff.to_remove[0].id, "oldpkg");
@@ -150,10 +155,8 @@ async fn compute_diff_with_mock_winget_manager_uses_injected_manager() {
     mock.is_installed = true;
     mock.installed_packages
         .insert("mocked-pkg".to_string(), "1.0".to_string());
-    mock.upgradable_packages.insert(
-        "mocked-pkg".to_string(),
-        UpgradeInfo::new("1.0", "2.0"),
-    );
+    mock.upgradable_packages
+        .insert("mocked-pkg".to_string(), UpgradeInfo::new("1.0", "2.0"));
 
     let mut config = winget_enabled();
     config.winget_packages = vec![pkg_entry("mocked-pkg", None)];
@@ -180,14 +183,27 @@ async fn compute_diff_chocolatey_pinned_version_in_state_and_not_in_state() {
         },
         ScoopOptions::default(),
     );
-    config.choco_packages = vec![pkg_entry("choco-in-state", Some("1.0")), pkg_entry("choco-not-in-state", Some("1.0"))];
+    config.choco_packages = vec![
+        pkg_entry("choco-in-state", Some("1.0")),
+        pkg_entry("choco-not-in-state", Some("1.0")),
+    ];
 
     let mut state = State::default();
     state
         .chocolatey
         .insert("choco-in-state".to_string(), "1.0".to_string());
 
-    let diff = diff_with(&config, &state, Some(&installed), None, None, false, false, false).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        None,
+        None,
+        false,
+        false,
+        false,
+    )
+    .await;
     assert_eq!(diff.to_skip.len(), 1);
     assert_eq!(diff.to_skip[0].id, "choco-in-state");
     assert_eq!(diff.to_install.len(), 1);
@@ -209,14 +225,27 @@ async fn compute_diff_scoop_pinned_version_in_state_and_not_in_state() {
             ..Default::default()
         },
     );
-    config.scoop_packages = vec![pkg_entry("scoop-in-state", Some("1.0")), pkg_entry("scoop-not-in-state", Some("1.0"))];
+    config.scoop_packages = vec![
+        pkg_entry("scoop-in-state", Some("1.0")),
+        pkg_entry("scoop-not-in-state", Some("1.0")),
+    ];
 
     let mut state = State::default();
     state
         .scoop
         .insert("scoop-in-state".to_string(), "1.0".to_string());
 
-    let diff = diff_with(&config, &state, Some(&installed), None, None, false, false, false).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        None,
+        None,
+        false,
+        false,
+        false,
+    )
+    .await;
     assert_eq!(diff.to_skip.len(), 1);
     assert_eq!(diff.to_skip[0].id, "scoop-in-state");
     assert_eq!(diff.to_install.len(), 1);
@@ -228,10 +257,8 @@ async fn compute_diff_unpinned_pkg_with_upgrade_to_upgrade() {
     let mut mock = MockWingetManager::new();
     mock.installed_packages
         .insert("upgradable-pkg".to_string(), "1.0".to_string());
-    mock.upgradable_packages.insert(
-        "upgradable-pkg".to_string(),
-        UpgradeInfo::new("1.0", "2.0"),
-    );
+    mock.upgradable_packages
+        .insert("upgradable-pkg".to_string(), UpgradeInfo::new("1.0", "2.0"));
 
     let mut config = winget_enabled();
     config.winget_packages = vec![pkg_entry("upgradable-pkg", None)];
@@ -267,7 +294,17 @@ async fn compute_diff_unpinned_pkg_installed_no_upgrade_to_skip() {
         .winget
         .insert("current-pkg".to_string(), "1.0".to_string());
 
-    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        Some(&mock),
+        None,
+        true,
+        false,
+        false,
+    )
+    .await;
 
     assert_eq!(diff.to_skip.len(), 1);
     assert_eq!(diff.to_skip[0].id, "current-pkg");
@@ -280,10 +317,8 @@ async fn compute_diff_no_upgrade_flag_upgradable_pkg_to_skip() {
     let mut mock = MockWingetManager::new();
     mock.installed_packages
         .insert("upgradable-pkg".to_string(), "1.0".to_string());
-    mock.upgradable_packages.insert(
-        "upgradable-pkg".to_string(),
-        UpgradeInfo::new("1.0", "2.0"),
-    );
+    mock.upgradable_packages
+        .insert("upgradable-pkg".to_string(), UpgradeInfo::new("1.0", "2.0"));
 
     let mut installed = InstalledPackages::default();
     installed
@@ -297,7 +332,17 @@ async fn compute_diff_no_upgrade_flag_upgradable_pkg_to_skip() {
         .winget
         .insert("upgradable-pkg".to_string(), "1.0".to_string());
 
-    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        Some(&mock),
+        None,
+        true,
+        false,
+        false,
+    )
+    .await;
 
     assert_eq!(diff.to_skip.len(), 1);
     assert_eq!(diff.to_skip[0].id, "upgradable-pkg");
@@ -315,7 +360,17 @@ async fn compute_diff_unpinned_pkg_not_installed_not_in_state_to_install() {
     config.winget_packages = vec![pkg_entry("new-pkg", None)];
     let state = State::default();
 
-    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        Some(&mock),
+        None,
+        true,
+        false,
+        false,
+    )
+    .await;
 
     assert_eq!(diff.to_install.len(), 1);
     assert_eq!(diff.to_install[0].id, "new-pkg");
@@ -336,7 +391,17 @@ async fn compute_diff_unpinned_pkg_in_state_not_installed_to_install() {
         .winget
         .insert("drifted-pkg".to_string(), "1.0".to_string());
 
-    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        Some(&mock),
+        None,
+        true,
+        false,
+        false,
+    )
+    .await;
 
     assert_eq!(diff.to_install.len(), 1);
     assert_eq!(diff.to_install[0].id, "drifted-pkg");
@@ -361,7 +426,17 @@ async fn compute_diff_pinned_version_mismatch_to_install() {
         .winget
         .insert("mismatch-pkg".to_string(), "1.0".to_string());
 
-    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        Some(&mock),
+        None,
+        true,
+        false,
+        false,
+    )
+    .await;
 
     assert_eq!(diff.to_install.len(), 1);
     assert_eq!(diff.to_install[0].id, "mismatch-pkg");
@@ -384,7 +459,17 @@ async fn compute_diff_pinned_version_mismatch_case_insensitive_to_install() {
         .winget
         .insert("case-pkg".to_string(), "1.0".to_string());
 
-    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        Some(&mock),
+        None,
+        true,
+        false,
+        false,
+    )
+    .await;
 
     assert_eq!(diff.to_skip.len(), 1);
     assert!(diff.to_install.is_empty());
@@ -404,7 +489,17 @@ async fn compute_diff_disabled_manager_skips_packages() {
     config.choco_packages = vec![pkg_entry("choco-pkg", Some("1.0"))];
     let state = State::default();
 
-    let diff = diff_with(&config, &state, Some(&installed), None, None, true, false, false).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        None,
+        None,
+        true,
+        false,
+        false,
+    )
+    .await;
     assert!(diff.to_install.is_empty());
     assert!(diff.to_upgrade.is_empty());
     assert!(diff.to_skip.is_empty());
@@ -440,8 +535,14 @@ async fn compute_diff_multiple_managers_all_enabled() {
             ..Default::default()
         },
     );
-    config.winget_packages = vec![pkg_entry("winget-current", None), pkg_entry("winget-new", None)];
-    config.choco_packages = vec![pkg_entry("choco-installed", Some("1.0")), pkg_entry("choco-new", Some("1.0"))];
+    config.winget_packages = vec![
+        pkg_entry("winget-current", None),
+        pkg_entry("winget-new", None),
+    ];
+    config.choco_packages = vec![
+        pkg_entry("choco-installed", Some("1.0")),
+        pkg_entry("choco-new", Some("1.0")),
+    ];
     config.scoop_packages = vec![pkg_entry("scoop-new", None)];
 
     let mut state = State::default();
@@ -455,22 +556,35 @@ async fn compute_diff_multiple_managers_all_enabled() {
         .chocolatey
         .insert("choco-orphan".to_string(), "1.0".to_string());
 
-    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, false, false, false).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        Some(&mock),
+        None,
+        false,
+        false,
+        false,
+    )
+    .await;
 
     assert!(diff.to_skip.iter().any(|s| s.id == "winget-current"));
-    assert!(diff
-        .to_install
-        .iter()
-        .any(|s| s.id == "winget-new" && s.source == "winget"));
+    assert!(
+        diff.to_install
+            .iter()
+            .any(|s| s.id == "winget-new" && s.source == "winget")
+    );
     assert!(diff.to_skip.iter().any(|s| s.id == "choco-installed"));
-    assert!(diff
-        .to_install
-        .iter()
-        .any(|s| s.id == "choco-new" && s.source == "chocolatey"));
-    assert!(diff
-        .to_install
-        .iter()
-        .any(|s| s.id == "scoop-new" && s.source == "scoop"));
+    assert!(
+        diff.to_install
+            .iter()
+            .any(|s| s.id == "choco-new" && s.source == "chocolatey")
+    );
+    assert!(
+        diff.to_install
+            .iter()
+            .any(|s| s.id == "scoop-new" && s.source == "scoop")
+    );
     assert!(diff.to_remove.iter().any(|s| s.id == "choco-orphan"));
 }
 
@@ -491,7 +605,17 @@ async fn compute_diff_nonexistent_winget_package_becomes_warning() {
     exists_map.insert("fake-pkg".to_string(), false);
     mock.package_exists_by_id = Some(exists_map);
 
-    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        Some(&mock),
+        None,
+        true,
+        false,
+        false,
+    )
+    .await;
 
     assert_eq!(diff.to_install.len(), 1);
     assert_eq!(diff.to_install[0].id, "real-pkg");
@@ -510,7 +634,17 @@ async fn compute_diff_nonexistent_winget_package_removed_from_to_install() {
     config.winget_packages = vec![pkg_entry("only-fake", None)];
     let state = State::default();
 
-    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        Some(&mock),
+        None,
+        true,
+        false,
+        false,
+    )
+    .await;
 
     assert!(diff.to_install.is_empty());
     assert!(diff.warnings.iter().any(|w| w.contains("only-fake")));
@@ -531,7 +665,17 @@ async fn compute_diff_installed_package_not_validated() {
         .winget
         .insert("existing-pkg".to_string(), "1.0".to_string());
 
-    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        Some(&mock),
+        None,
+        true,
+        false,
+        false,
+    )
+    .await;
 
     assert_eq!(diff.to_skip.len(), 1);
     assert_eq!(mock.package_exists_call_count(), 0);
@@ -550,7 +694,17 @@ async fn compute_diff_winget_validation_throws_graceful_degradation() {
     config.winget_packages = vec![pkg_entry("some-pkg", None)];
     let state = State::default();
 
-    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        Some(&mock),
+        None,
+        true,
+        false,
+        false,
+    )
+    .await;
 
     assert_eq!(diff.to_install.len(), 1);
     assert_eq!(diff.to_install[0].id, "some-pkg");
@@ -575,7 +729,11 @@ async fn compute_diff_invalid_managers_returns_warning_in_result() {
     let state = State::default();
 
     let diff = diff_with(&config, &state, None, None, None, true, false, false).await;
-    assert!(diff.warnings.iter().any(|w| w.contains("Chocolatey packages declared but chocolatey not enabled")));
+    assert!(
+        diff.warnings
+            .iter()
+            .any(|w| w.contains("Chocolatey packages declared but chocolatey not enabled"))
+    );
 }
 
 #[tokio::test]
@@ -593,7 +751,11 @@ async fn compute_diff_scoop_disabled_with_packages_generates_warning() {
     let state = State::default();
 
     let diff = diff_with(&config, &state, None, None, None, true, false, false).await;
-    assert!(diff.warnings.iter().any(|w| w.contains("Scoop packages declared but scoop not enabled")));
+    assert!(
+        diff.warnings
+            .iter()
+            .any(|w| w.contains("Scoop packages declared but scoop not enabled"))
+    );
 }
 
 #[tokio::test]
@@ -644,7 +806,17 @@ async fn compute_diff_adopt_mode_installed_not_in_state_to_adopt() {
     config.winget_packages = vec![pkg_entry("manual-pkg", None)];
     let state = State::default();
 
-    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, true).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        Some(&mock),
+        None,
+        true,
+        false,
+        true,
+    )
+    .await;
 
     assert_eq!(diff.to_adopt.len(), 1);
     assert_eq!(diff.to_adopt[0].id, "manual-pkg");
@@ -667,7 +839,17 @@ async fn compute_diff_no_adopt_mode_installed_not_in_state_to_skip() {
     config.winget_packages = vec![pkg_entry("manual-pkg", None)];
     let state = State::default();
 
-    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        Some(&mock),
+        None,
+        true,
+        false,
+        false,
+    )
+    .await;
 
     assert_eq!(diff.to_skip.len(), 1);
     assert_eq!(diff.to_skip[0].id, "manual-pkg");
@@ -689,7 +871,17 @@ async fn compute_diff_adopt_mode_pinned_version_matches_to_adopt() {
     config.winget_packages = vec![pkg_entry("pinned-pkg", Some("1.0"))];
     let state = State::default();
 
-    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, true).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        Some(&mock),
+        None,
+        true,
+        false,
+        true,
+    )
+    .await;
 
     assert_eq!(diff.to_adopt.len(), 1);
     assert_eq!(diff.to_adopt[0].id, "pinned-pkg");
@@ -712,7 +904,17 @@ async fn compute_diff_adopt_mode_pinned_version_mismatch_to_install() {
     config.winget_packages = vec![pkg_entry("pinned-pkg", Some("2.0"))];
     let state = State::default();
 
-    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, false, false, true).await;
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        Some(&mock),
+        None,
+        false,
+        false,
+        true,
+    )
+    .await;
 
     assert_eq!(diff.to_install.len(), 1);
     assert_eq!(diff.to_install[0].id, "pinned-pkg");
@@ -735,8 +937,22 @@ async fn compute_diff_choco_new_pkg_validation_not_found_adds_warning() {
     config.choco_packages = vec![pkg_entry("nonexistent-choco", None)];
     let state = State::default();
 
-    let diff = diff_with(&config, &state, Some(&installed), None, Some(&mock_runner), true, false, false).await;
-    assert!(diff.warnings.iter().any(|w| w.contains("nonexistent-choco")));
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        None,
+        Some(&mock_runner),
+        true,
+        false,
+        false,
+    )
+    .await;
+    assert!(
+        diff.warnings
+            .iter()
+            .any(|w| w.contains("nonexistent-choco"))
+    );
 }
 
 #[tokio::test]
@@ -754,8 +970,22 @@ async fn compute_diff_scoop_new_pkg_validation_not_found_adds_warning() {
     config.scoop_packages = vec![pkg_entry("nonexistent-scoop", None)];
     let state = State::default();
 
-    let diff = diff_with(&config, &state, Some(&installed), None, Some(&mock_runner), true, false, false).await;
-    assert!(diff.warnings.iter().any(|w| w.contains("nonexistent-scoop")));
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        None,
+        Some(&mock_runner),
+        true,
+        false,
+        false,
+    )
+    .await;
+    assert!(
+        diff.warnings
+            .iter()
+            .any(|w| w.contains("nonexistent-scoop"))
+    );
 }
 
 #[tokio::test]
@@ -779,4 +1009,84 @@ async fn compute_diff_with_progress_reports_steps() {
     )
     .await
     .expect("should not error");
+}
+
+fn temp_cfg_dir() -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "ntix_diff_cfg_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn cfg_entry(
+    dest: &std::path::Path,
+    src: &std::path::Path,
+) -> ntix_rs::models::config_file::ConfigFileEntry {
+    ntix_rs::models::config_file::ConfigFileEntry {
+        dest: dest.to_path_buf(),
+        src: src.to_path_buf(),
+    }
+}
+
+#[test]
+fn compute_config_files_diff_classifies_create_update_skip_orphan() {
+    use ntix_rs::diff::diff_engine::compute_config_files_diff;
+    use ntix_rs::models::ntix_config::NTIXConfig;
+
+    let dir = temp_cfg_dir();
+    let dest = dir.join("dest");
+
+    let src_new = dir.join("new.conf");
+    let src_upd = dir.join("upd.conf");
+    std::fs::write(&src_new, "content-create").unwrap();
+    std::fs::write(&src_upd, "content-v1").unwrap();
+
+    let dest_new = dest.join("new.conf");
+    let dest_upd = dest.join("upd.conf");
+    let dest_same = dest.join("same.conf");
+    let orphan = dest.join("orphan.conf");
+
+    let mut state = State::default();
+    // orphan tracked but not in config
+    state
+        .config_files
+        .insert(orphan.to_string_lossy().to_string(), "x".into());
+    // upd tracked with different hash
+    state
+        .config_files
+        .insert(dest_upd.to_string_lossy().to_string(), "stale-hash".into());
+
+    let mut config = NTIXConfig::default();
+    config.config_files.push(cfg_entry(&dest_new, &src_new));
+    config.config_files.push(cfg_entry(&dest_upd, &src_upd));
+    // same source content as a pre-tracked dest
+    let same_src = dir.join("same.conf");
+    std::fs::write(&same_src, "content-same").unwrap();
+    state.config_files.insert(
+        dest_same.to_string_lossy().to_string(),
+        ntix_rs::hash::sha256_hex(b"content-same"),
+    );
+    config.config_files.push(cfg_entry(&dest_same, &same_src));
+
+    let mut diff = DiffResult::default();
+    compute_config_files_diff(&mut diff, &config, &state);
+
+    assert_eq!(diff.config_files_to_create.len(), 1);
+    assert_eq!(diff.config_files_to_create[0].dest, dest_new);
+    assert_eq!(diff.config_files_to_update.len(), 1);
+    assert_eq!(diff.config_files_to_update[0].dest, dest_upd);
+    assert_eq!(diff.config_files_to_skip.len(), 1);
+    assert_eq!(diff.config_files_to_skip[0].dest, dest_same);
+    assert_eq!(
+        diff.config_files_no_longer_managed,
+        vec![orphan.to_string_lossy().to_string()]
+    );
+
+    std::fs::remove_dir_all(&dir).unwrap();
 }

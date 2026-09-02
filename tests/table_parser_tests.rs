@@ -9,7 +9,10 @@ fn parse_table_basic_two_columns() {
     let input = "Name        Id\n----        --\nvim         Vim.Vim\npython      Python.Python";
     let (columns, cells) = parse_table(lines(input)).expect("table should parse");
     assert_eq!(columns, 2);
-    assert_eq!(cells, vec!["Name", "Id", "vim", "Vim.Vim", "python", "Python.Python"]);
+    assert_eq!(
+        cells,
+        vec!["Name", "Id", "vim", "Vim.Vim", "python", "Python.Python"]
+    );
 }
 
 #[test]
