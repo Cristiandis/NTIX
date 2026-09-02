@@ -14,11 +14,12 @@ targets = ["aarch64-pc-windows-msvc", "x86_64-pc-windows-gnu"]
 # Where to host releases
 hosting = "github"
 # Post-announce jobs to run in CI
+github-build-setup = "../ensure-wix.yml"
 post-announce-jobs = ["./scoop-publish"]
 
 # Build dependencies to install on CI for the windows-gnu target
 [dist.dependencies.chocolatey]
-mingw = "*"
+mingw = { targets = ["x86_64-pc-windows-gnu"] }
 
 [dist.github-custom-runners]
 aarch64-pc-windows-msvc = "windows-11-arm"
