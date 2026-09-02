@@ -1,0 +1,782 @@
+use std::collections::HashMap;
+
+use indicatif::ProgressBar;
+use ntix_rs::diff::diff_engine::compute_diff;
+use ntix_rs::models::diff_result::DiffResult;
+use ntix_rs::models::installed_packages::{InstalledPackages, UpgradeInfo};
+use ntix_rs::models::ntix_config::NTIXConfig;
+use ntix_rs::models::options::{ChocoOptions, NTIXOptions, ScoopOptions, WingetOptions};
+use ntix_rs::models::package_entry::PackageEntry;
+use ntix_rs::models::state::State;
+
+mod common;
+use common::{MockCommandRunner, MockManagerPresence, MockWingetManager};
+
+fn progress() -> ProgressBar {
+    ProgressBar::new_spinner()
+}
+
+fn pkg_entry(id: &str, version: Option<&str>) -> PackageEntry {
+    PackageEntry {
+        id: id.to_string(),
+        version: version.map(|s| s.to_string()),
+    }
+}
+
+fn ntix_config(
+    winget: WingetOptions,
+    choco: ChocoOptions,
+    scoop: ScoopOptions,
+) -> NTIXConfig {
+    NTIXConfig {
+        options: NTIXOptions {
+            winget,
+            chocolatey: choco,
+            scoop,
+        },
+        ..Default::default()
+    }
+}
+
+/// Computes a diff with common defaults:
+/// no winget manager (unless given), no runner, adopt/upgrade/validate configurable.
+async fn diff_with(
+    config: &NTIXConfig,
+    state: &State,
+    installed: Option<&InstalledPackages>,
+    winget_manager: Option<&MockWingetManager>,
+    runner: Option<&MockCommandRunner>,
+    validate_packages: bool,
+    upgrade_mode: bool,
+    adopt_mode: bool,
+) -> DiffResult {
+    compute_diff(
+        config,
+        state,
+        winget_manager.map(|m| m as &dyn ntix_rs::package_manager::winget_manager_trait::WingetManagerTrait),
+        Some(&MockManagerPresence::new()),
+        runner.map(|r| r as &dyn ntix_rs::package_manager::command_runner::CommandRunner),
+        adopt_mode,
+        upgrade_mode,
+        validate_packages,
+        installed,
+        &progress(),
+    )
+    .await
+    .expect("compute_diff should not error")
+}
+
+fn winget_enabled() -> NTIXConfig {
+    ntix_config(
+        WingetOptions {
+            enable: true,
+            ..Default::default()
+        },
+        ChocoOptions::default(),
+        ScoopOptions::default(),
+    )
+}
+
+#[tokio::test]
+async fn compute_diff_empty_config_and_state_returns_empty() {
+    let config = NTIXConfig::default();
+    let state = State::default();
+    let diff = diff_with(&config, &state, None, None, None, true, false, false).await;
+    assert!(diff.is_empty());
+    assert!(diff.to_install.is_empty());
+    assert!(diff.to_upgrade.is_empty());
+    assert!(diff.to_skip.is_empty());
+    assert!(diff.to_remove.is_empty());
+}
+
+#[tokio::test]
+async fn compute_diff_package_in_config_not_in_state_to_install() {
+    let mut mock = MockWingetManager::new();
+    mock.package_exists_result = Some(true);
+    let config = ntix_config(
+        WingetOptions {
+            enable: true,
+            ..Default::default()
+        },
+        ChocoOptions::default(),
+        ScoopOptions::default(),
+    );
+    let mut config = config;
+    config.winget_packages = vec![pkg_entry("testpkg", None)];
+    let state = State::default();
+    let diff = diff_with(&config, &state, None, Some(&mock), None, false, false, false).await;
+    assert_eq!(diff.to_install.len(), 1);
+    assert_eq!(diff.to_install[0].id, "testpkg");
+}
+
+#[tokio::test]
+async fn compute_diff_package_in_state_not_in_config_to_remove() {
+    let config = NTIXConfig::default();
+    let mut state = State::default();
+    state
+        .winget
+        .insert("oldpkg".to_string(), "1.0".to_string());
+    let diff = diff_with(&config, &state, None, None, None, true, false, false).await;
+    assert_eq!(diff.to_remove.len(), 1);
+    assert_eq!(diff.to_remove[0].id, "oldpkg");
+}
+
+#[tokio::test]
+async fn compute_diff_package_in_both_state_and_config_to_skip() {
+    let mut mock = MockWingetManager::new();
+    mock.package_exists_result = Some(true);
+    let config = ntix_config(
+        WingetOptions {
+            enable: true,
+            ..Default::default()
+        },
+        ChocoOptions::default(),
+        ScoopOptions::default(),
+    );
+    let mut config = config;
+    config.winget_packages = vec![pkg_entry("testpkg", Some("1.0"))];
+    let mut state = State::default();
+    state
+        .winget
+        .insert("testpkg".to_string(), "1.0".to_string());
+    let diff = diff_with(&config, &state, None, Some(&mock), None, true, false, false).await;
+    assert_eq!(diff.to_skip.len(), 1);
+    assert_eq!(diff.to_skip[0].id, "testpkg");
+}
+
+#[tokio::test]
+async fn compute_diff_with_mock_winget_manager_uses_injected_manager() {
+    let mut mock = MockWingetManager::new();
+    mock.is_installed = true;
+    mock.installed_packages
+        .insert("mocked-pkg".to_string(), "1.0".to_string());
+    mock.upgradable_packages.insert(
+        "mocked-pkg".to_string(),
+        UpgradeInfo::new("1.0", "2.0"),
+    );
+
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("mocked-pkg", None)];
+    let state = State::default();
+
+    let diff = diff_with(&config, &state, None, Some(&mock), None, true, true, false).await;
+    assert_eq!(diff.to_upgrade.len(), 1);
+    assert_eq!(diff.to_upgrade[0].id, "mocked-pkg");
+    assert_eq!(diff.to_upgrade[0].version, Some("2.0".to_string()));
+}
+
+#[tokio::test]
+async fn compute_diff_chocolatey_pinned_version_in_state_and_not_in_state() {
+    let mut installed = InstalledPackages::default();
+    installed
+        .chocolatey
+        .insert("choco-in-state".to_string(), "1.0".to_string());
+
+    let mut config = ntix_config(
+        WingetOptions::default(),
+        ChocoOptions {
+            enable: true,
+            ..Default::default()
+        },
+        ScoopOptions::default(),
+    );
+    config.choco_packages = vec![pkg_entry("choco-in-state", Some("1.0")), pkg_entry("choco-not-in-state", Some("1.0"))];
+
+    let mut state = State::default();
+    state
+        .chocolatey
+        .insert("choco-in-state".to_string(), "1.0".to_string());
+
+    let diff = diff_with(&config, &state, Some(&installed), None, None, false, false, false).await;
+    assert_eq!(diff.to_skip.len(), 1);
+    assert_eq!(diff.to_skip[0].id, "choco-in-state");
+    assert_eq!(diff.to_install.len(), 1);
+    assert_eq!(diff.to_install[0].id, "choco-not-in-state");
+}
+
+#[tokio::test]
+async fn compute_diff_scoop_pinned_version_in_state_and_not_in_state() {
+    let mut installed = InstalledPackages::default();
+    installed
+        .scoop
+        .insert("scoop-in-state".to_string(), "1.0".to_string());
+
+    let mut config = ntix_config(
+        WingetOptions::default(),
+        ChocoOptions::default(),
+        ScoopOptions {
+            enable: true,
+            ..Default::default()
+        },
+    );
+    config.scoop_packages = vec![pkg_entry("scoop-in-state", Some("1.0")), pkg_entry("scoop-not-in-state", Some("1.0"))];
+
+    let mut state = State::default();
+    state
+        .scoop
+        .insert("scoop-in-state".to_string(), "1.0".to_string());
+
+    let diff = diff_with(&config, &state, Some(&installed), None, None, false, false, false).await;
+    assert_eq!(diff.to_skip.len(), 1);
+    assert_eq!(diff.to_skip[0].id, "scoop-in-state");
+    assert_eq!(diff.to_install.len(), 1);
+    assert_eq!(diff.to_install[0].id, "scoop-not-in-state");
+}
+
+#[tokio::test]
+async fn compute_diff_unpinned_pkg_with_upgrade_to_upgrade() {
+    let mut mock = MockWingetManager::new();
+    mock.installed_packages
+        .insert("upgradable-pkg".to_string(), "1.0".to_string());
+    mock.upgradable_packages.insert(
+        "upgradable-pkg".to_string(),
+        UpgradeInfo::new("1.0", "2.0"),
+    );
+
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("upgradable-pkg", None)];
+    let mut state = State::default();
+    state
+        .winget
+        .insert("upgradable-pkg".to_string(), "1.0".to_string());
+
+    let diff = diff_with(&config, &state, None, Some(&mock), None, true, true, false).await;
+
+    assert_eq!(diff.to_upgrade.len(), 1);
+    assert_eq!(diff.to_upgrade[0].id, "upgradable-pkg");
+    assert_eq!(diff.to_upgrade[0].version, Some("2.0".to_string()));
+    assert!(diff.to_skip.is_empty());
+    assert!(diff.to_install.is_empty());
+}
+
+#[tokio::test]
+async fn compute_diff_unpinned_pkg_installed_no_upgrade_to_skip() {
+    let mut mock = MockWingetManager::new();
+    mock.installed_packages
+        .insert("current-pkg".to_string(), "1.0".to_string());
+
+    let mut installed = InstalledPackages::default();
+    installed
+        .winget
+        .insert("current-pkg".to_string(), "1.0".to_string());
+
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("current-pkg", None)];
+    let mut state = State::default();
+    state
+        .winget
+        .insert("current-pkg".to_string(), "1.0".to_string());
+
+    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+
+    assert_eq!(diff.to_skip.len(), 1);
+    assert_eq!(diff.to_skip[0].id, "current-pkg");
+    assert!(diff.to_upgrade.is_empty());
+    assert!(diff.to_install.is_empty());
+}
+
+#[tokio::test]
+async fn compute_diff_no_upgrade_flag_upgradable_pkg_to_skip() {
+    let mut mock = MockWingetManager::new();
+    mock.installed_packages
+        .insert("upgradable-pkg".to_string(), "1.0".to_string());
+    mock.upgradable_packages.insert(
+        "upgradable-pkg".to_string(),
+        UpgradeInfo::new("1.0", "2.0"),
+    );
+
+    let mut installed = InstalledPackages::default();
+    installed
+        .winget
+        .insert("upgradable-pkg".to_string(), "1.0".to_string());
+
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("upgradable-pkg", None)];
+    let mut state = State::default();
+    state
+        .winget
+        .insert("upgradable-pkg".to_string(), "1.0".to_string());
+
+    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+
+    assert_eq!(diff.to_skip.len(), 1);
+    assert_eq!(diff.to_skip[0].id, "upgradable-pkg");
+    assert!(diff.to_upgrade.is_empty());
+    assert!(diff.to_install.is_empty());
+}
+
+#[tokio::test]
+async fn compute_diff_unpinned_pkg_not_installed_not_in_state_to_install() {
+    let mut mock = MockWingetManager::new();
+    mock.package_exists_result = Some(true);
+    let installed = InstalledPackages::default();
+
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("new-pkg", None)];
+    let state = State::default();
+
+    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+
+    assert_eq!(diff.to_install.len(), 1);
+    assert_eq!(diff.to_install[0].id, "new-pkg");
+    assert!(diff.to_upgrade.is_empty());
+    assert!(diff.to_skip.is_empty());
+}
+
+#[tokio::test]
+async fn compute_diff_unpinned_pkg_in_state_not_installed_to_install() {
+    let mut mock = MockWingetManager::new();
+    mock.package_exists_result = Some(true);
+    let installed = InstalledPackages::default();
+
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("drifted-pkg", None)];
+    let mut state = State::default();
+    state
+        .winget
+        .insert("drifted-pkg".to_string(), "1.0".to_string());
+
+    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+
+    assert_eq!(diff.to_install.len(), 1);
+    assert_eq!(diff.to_install[0].id, "drifted-pkg");
+}
+
+#[tokio::test]
+async fn compute_diff_pinned_version_mismatch_to_install() {
+    let mut mock = MockWingetManager::new();
+    mock.installed_packages
+        .insert("mismatch-pkg".to_string(), "1.0".to_string());
+    mock.package_exists_result = Some(true);
+
+    let mut installed = InstalledPackages::default();
+    installed
+        .winget
+        .insert("mismatch-pkg".to_string(), "1.0".to_string());
+
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("mismatch-pkg", Some("2.0"))];
+    let mut state = State::default();
+    state
+        .winget
+        .insert("mismatch-pkg".to_string(), "1.0".to_string());
+
+    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+
+    assert_eq!(diff.to_install.len(), 1);
+    assert_eq!(diff.to_install[0].id, "mismatch-pkg");
+    assert_eq!(diff.to_install[0].version, Some("2.0".to_string()));
+    assert!(diff.to_skip.is_empty());
+}
+
+#[tokio::test]
+async fn compute_diff_pinned_version_mismatch_case_insensitive_to_install() {
+    let mock = MockWingetManager::new();
+    let mut installed = InstalledPackages::default();
+    installed
+        .winget
+        .insert("case-pkg".to_string(), "1.0".to_string());
+
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("case-pkg", Some("1.0"))];
+    let mut state = State::default();
+    state
+        .winget
+        .insert("case-pkg".to_string(), "1.0".to_string());
+
+    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+
+    assert_eq!(diff.to_skip.len(), 1);
+    assert!(diff.to_install.is_empty());
+}
+
+#[tokio::test]
+async fn compute_diff_disabled_manager_skips_packages() {
+    let installed = InstalledPackages::default();
+    let mut config = ntix_config(
+        WingetOptions::default(),
+        ChocoOptions {
+            enable: false,
+            ..Default::default()
+        },
+        ScoopOptions::default(),
+    );
+    config.choco_packages = vec![pkg_entry("choco-pkg", Some("1.0"))];
+    let state = State::default();
+
+    let diff = diff_with(&config, &state, Some(&installed), None, None, true, false, false).await;
+    assert!(diff.to_install.is_empty());
+    assert!(diff.to_upgrade.is_empty());
+    assert!(diff.to_skip.is_empty());
+    assert!(diff.to_remove.is_empty());
+}
+
+#[tokio::test]
+async fn compute_diff_multiple_managers_all_enabled() {
+    let mut mock = MockWingetManager::new();
+    mock.installed_packages
+        .insert("winget-current".to_string(), "1.0".to_string());
+    mock.package_exists_result = Some(true);
+
+    let mut installed = InstalledPackages::default();
+    installed
+        .winget
+        .insert("winget-current".to_string(), "1.0".to_string());
+    installed
+        .chocolatey
+        .insert("choco-installed".to_string(), "1.0".to_string());
+
+    let mut config = ntix_config(
+        WingetOptions {
+            enable: true,
+            ..Default::default()
+        },
+        ChocoOptions {
+            enable: true,
+            ..Default::default()
+        },
+        ScoopOptions {
+            enable: true,
+            ..Default::default()
+        },
+    );
+    config.winget_packages = vec![pkg_entry("winget-current", None), pkg_entry("winget-new", None)];
+    config.choco_packages = vec![pkg_entry("choco-installed", Some("1.0")), pkg_entry("choco-new", Some("1.0"))];
+    config.scoop_packages = vec![pkg_entry("scoop-new", None)];
+
+    let mut state = State::default();
+    state
+        .winget
+        .insert("winget-current".to_string(), "1.0".to_string());
+    state
+        .chocolatey
+        .insert("choco-installed".to_string(), "1.0".to_string());
+    state
+        .chocolatey
+        .insert("choco-orphan".to_string(), "1.0".to_string());
+
+    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, false, false, false).await;
+
+    assert!(diff.to_skip.iter().any(|s| s.id == "winget-current"));
+    assert!(diff
+        .to_install
+        .iter()
+        .any(|s| s.id == "winget-new" && s.source == "winget"));
+    assert!(diff.to_skip.iter().any(|s| s.id == "choco-installed"));
+    assert!(diff
+        .to_install
+        .iter()
+        .any(|s| s.id == "choco-new" && s.source == "chocolatey"));
+    assert!(diff
+        .to_install
+        .iter()
+        .any(|s| s.id == "scoop-new" && s.source == "scoop"));
+    assert!(diff.to_remove.iter().any(|s| s.id == "choco-orphan"));
+}
+
+#[tokio::test]
+async fn compute_diff_nonexistent_winget_package_becomes_warning() {
+    let mut mock = MockWingetManager::new();
+    mock.package_exists_result = None;
+    mock.package_exists_error = None;
+
+    let installed = InstalledPackages::default();
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("real-pkg", None), pkg_entry("fake-pkg", None)];
+    let state = State::default();
+
+    // Configure per-id results: real exists, fake doesn't
+    let mut exists_map = HashMap::new();
+    exists_map.insert("real-pkg".to_string(), true);
+    exists_map.insert("fake-pkg".to_string(), false);
+    mock.package_exists_by_id = Some(exists_map);
+
+    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+
+    assert_eq!(diff.to_install.len(), 1);
+    assert_eq!(diff.to_install[0].id, "real-pkg");
+    assert!(diff.warnings.iter().any(|w| w.contains("fake-pkg")));
+}
+
+#[tokio::test]
+async fn compute_diff_nonexistent_winget_package_removed_from_to_install() {
+    let mut mock = MockWingetManager::new();
+    let mut exists_map = HashMap::new();
+    exists_map.insert("only-fake".to_string(), false);
+    mock.package_exists_by_id = Some(exists_map);
+
+    let installed = InstalledPackages::default();
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("only-fake", None)];
+    let state = State::default();
+
+    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+
+    assert!(diff.to_install.is_empty());
+    assert!(diff.warnings.iter().any(|w| w.contains("only-fake")));
+}
+
+#[tokio::test]
+async fn compute_diff_installed_package_not_validated() {
+    let mock = MockWingetManager::new();
+    let mut installed = InstalledPackages::default();
+    installed
+        .winget
+        .insert("existing-pkg".to_string(), "1.0".to_string());
+
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("existing-pkg", None)];
+    let mut state = State::default();
+    state
+        .winget
+        .insert("existing-pkg".to_string(), "1.0".to_string());
+
+    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+
+    assert_eq!(diff.to_skip.len(), 1);
+    assert_eq!(mock.package_exists_call_count(), 0);
+}
+
+#[tokio::test]
+async fn compute_diff_winget_validation_throws_graceful_degradation() {
+    let mut mock = MockWingetManager::new();
+    let mut exists_map = HashMap::new();
+    exists_map.insert("some-pkg".to_string(), true);
+    mock.package_exists_by_id = Some(exists_map);
+    mock.package_exists_throw = true;
+
+    let installed = InstalledPackages::default();
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("some-pkg", None)];
+    let state = State::default();
+
+    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+
+    assert_eq!(diff.to_install.len(), 1);
+    assert_eq!(diff.to_install[0].id, "some-pkg");
+    assert!(diff.warnings.iter().any(|w| w.contains("Could not verify")));
+}
+
+#[tokio::test]
+async fn compute_diff_invalid_managers_returns_warning_in_result() {
+    let config = ntix_config(
+        WingetOptions::default(),
+        ChocoOptions {
+            enable: false,
+            ..Default::default()
+        },
+        ScoopOptions {
+            enable: false,
+            ..Default::default()
+        },
+    );
+    let mut config = config;
+    config.choco_packages = vec![pkg_entry("pkg1", Some("1.0"))];
+    let state = State::default();
+
+    let diff = diff_with(&config, &state, None, None, None, true, false, false).await;
+    assert!(diff.warnings.iter().any(|w| w.contains("Chocolatey packages declared but chocolatey not enabled")));
+}
+
+#[tokio::test]
+async fn compute_diff_scoop_disabled_with_packages_generates_warning() {
+    let config = ntix_config(
+        WingetOptions::default(),
+        ChocoOptions::default(),
+        ScoopOptions {
+            enable: false,
+            ..Default::default()
+        },
+    );
+    let mut config = config;
+    config.scoop_packages = vec![pkg_entry("pkg1", Some("1.0"))];
+    let state = State::default();
+
+    let diff = diff_with(&config, &state, None, None, None, true, false, false).await;
+    assert!(diff.warnings.iter().any(|w| w.contains("Scoop packages declared but scoop not enabled")));
+}
+
+#[tokio::test]
+async fn compute_diff_known_package_skips_validation() {
+    let mock = MockWingetManager::new();
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("known-pkg", None)];
+    let mut state = State::default();
+    state
+        .winget
+        .insert("known-pkg".to_string(), "1.0".to_string());
+
+    let diff = diff_with(&config, &state, None, Some(&mock), None, true, false, false).await;
+
+    assert_eq!(diff.to_install.len(), 1);
+    assert_eq!(mock.package_exists_call_count(), 0);
+}
+
+#[tokio::test]
+async fn compute_diff_new_package_validates() {
+    let mut mock = MockWingetManager::new();
+    let mut exists_map = HashMap::new();
+    exists_map.insert("new-pkg".to_string(), true);
+    mock.package_exists_by_id = Some(exists_map);
+
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("new-pkg", None)];
+    let state = State::default();
+
+    let diff = diff_with(&config, &state, None, Some(&mock), None, true, false, false).await;
+
+    assert_eq!(diff.to_install.len(), 1);
+    assert_eq!(mock.package_exists_call_count(), 1);
+}
+
+#[tokio::test]
+async fn compute_diff_adopt_mode_installed_not_in_state_to_adopt() {
+    let mut mock = MockWingetManager::new();
+    mock.installed_packages
+        .insert("manual-pkg".to_string(), "3.0".to_string());
+
+    let mut installed = InstalledPackages::default();
+    installed
+        .winget
+        .insert("manual-pkg".to_string(), "3.0".to_string());
+
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("manual-pkg", None)];
+    let state = State::default();
+
+    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, true).await;
+
+    assert_eq!(diff.to_adopt.len(), 1);
+    assert_eq!(diff.to_adopt[0].id, "manual-pkg");
+    assert!(diff.to_skip.is_empty());
+    assert!(diff.to_install.is_empty());
+}
+
+#[tokio::test]
+async fn compute_diff_no_adopt_mode_installed_not_in_state_to_skip() {
+    let mut mock = MockWingetManager::new();
+    mock.installed_packages
+        .insert("manual-pkg".to_string(), "3.0".to_string());
+
+    let mut installed = InstalledPackages::default();
+    installed
+        .winget
+        .insert("manual-pkg".to_string(), "3.0".to_string());
+
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("manual-pkg", None)];
+    let state = State::default();
+
+    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, false).await;
+
+    assert_eq!(diff.to_skip.len(), 1);
+    assert_eq!(diff.to_skip[0].id, "manual-pkg");
+    assert!(diff.to_adopt.is_empty());
+}
+
+#[tokio::test]
+async fn compute_diff_adopt_mode_pinned_version_matches_to_adopt() {
+    let mut mock = MockWingetManager::new();
+    mock.installed_packages
+        .insert("pinned-pkg".to_string(), "1.0".to_string());
+
+    let mut installed = InstalledPackages::default();
+    installed
+        .winget
+        .insert("pinned-pkg".to_string(), "1.0".to_string());
+
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("pinned-pkg", Some("1.0"))];
+    let state = State::default();
+
+    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, true, false, true).await;
+
+    assert_eq!(diff.to_adopt.len(), 1);
+    assert_eq!(diff.to_adopt[0].id, "pinned-pkg");
+    assert_eq!(diff.to_adopt[0].version, Some("1.0".to_string()));
+    assert!(diff.to_install.is_empty());
+}
+
+#[tokio::test]
+async fn compute_diff_adopt_mode_pinned_version_mismatch_to_install() {
+    let mut mock = MockWingetManager::new();
+    mock.installed_packages
+        .insert("pinned-pkg".to_string(), "1.0".to_string());
+
+    let mut installed = InstalledPackages::default();
+    installed
+        .winget
+        .insert("pinned-pkg".to_string(), "1.0".to_string());
+
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("pinned-pkg", Some("2.0"))];
+    let state = State::default();
+
+    let diff = diff_with(&config, &state, Some(&installed), Some(&mock), None, false, false, true).await;
+
+    assert_eq!(diff.to_install.len(), 1);
+    assert_eq!(diff.to_install[0].id, "pinned-pkg");
+    assert_eq!(diff.to_install[0].version, Some("2.0".to_string()));
+    assert!(diff.to_adopt.is_empty());
+}
+
+#[tokio::test]
+async fn compute_diff_choco_new_pkg_validation_not_found_adds_warning() {
+    let mock_runner = MockCommandRunner::new();
+    let installed = InstalledPackages::default();
+    let mut config = ntix_config(
+        WingetOptions::default(),
+        ChocoOptions {
+            enable: true,
+            ..Default::default()
+        },
+        ScoopOptions::default(),
+    );
+    config.choco_packages = vec![pkg_entry("nonexistent-choco", None)];
+    let state = State::default();
+
+    let diff = diff_with(&config, &state, Some(&installed), None, Some(&mock_runner), true, false, false).await;
+    assert!(diff.warnings.iter().any(|w| w.contains("nonexistent-choco")));
+}
+
+#[tokio::test]
+async fn compute_diff_scoop_new_pkg_validation_not_found_adds_warning() {
+    let mock_runner = MockCommandRunner::new();
+    let installed = InstalledPackages::default();
+    let mut config = ntix_config(
+        WingetOptions::default(),
+        ChocoOptions::default(),
+        ScoopOptions {
+            enable: true,
+            ..Default::default()
+        },
+    );
+    config.scoop_packages = vec![pkg_entry("nonexistent-scoop", None)];
+    let state = State::default();
+
+    let diff = diff_with(&config, &state, Some(&installed), None, Some(&mock_runner), true, false, false).await;
+    assert!(diff.warnings.iter().any(|w| w.contains("nonexistent-scoop")));
+}
+
+#[tokio::test]
+async fn compute_diff_with_progress_reports_steps() {
+    let mock = MockWingetManager::new();
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("test-pkg", None)];
+    let state = State::default();
+
+    compute_diff(
+        &config,
+        &state,
+        Some(&mock),
+        None,
+        None,
+        false,
+        false,
+        true,
+        None,
+        &progress(),
+    )
+    .await
+    .expect("should not error");
+}

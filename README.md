@@ -41,7 +41,7 @@ return { options = options, pkgs = pkgs }
 
 ## License
 
-Copyright © 2026 Cristian Izzo. Licensed under GPLv3, see [LICENSE](LICENSE).
+Copyright © 2026 Cristian Izzo. Licensed under LGPLv2.1, see [LICENSE](LICENSE).
 Branding assets are licensed under [CC BY 4.0](branding/LICENSE).
 
 ## Support the Project

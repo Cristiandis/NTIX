@@ -1,23 +1,5 @@
-# .NET
-bin/
-obj/
-*.user
-*.suo
-*.userprefs
-*.cache
-
-# Build results
-[Dd]ebug/
-[Rr]elease/
-x64/
-x86/
-[Aa][Rr][Mm]/
-[Aa][Rr][Mm]64/
-bld/
-[Bb]in/
-[Oo]bj/
-[Ll]og/
-[Ll]ogs/
+/target
+.cargo
 
 # Visual Studio
 .vs/
@@ -38,26 +20,3 @@ TestResults/
 # Coverage
 coverage.xml
 *.acv
-
-# NuGet
-packages/
-*.nupkg
-*.snupkg
-
-# Temporary files
-*.tmp
-*.temp
-*.log
-
-# OS
-Thumbs.db
-.DS_Store
-
-# Native AOT publish output
-publish/
-
-# Lock files
-*.lock
-
-# Inno Setup build output
-installer/Output/

@@ -1,3 +1,6 @@
+codecov:
+  token: 0b8da61e-b871-48d3-8549-f45203aeafb1
+
 coverage:
   status:
     project:
@@ -10,7 +13,8 @@ coverage:
         threshold: 5%
 
 ignore:
-  - "src/NTIX.Cli/**"
+  - "src/main.rs"
+  - "src/commands.rs"
   - "examples/**"
   - "tests/**"
 
@@ -22,5 +26,5 @@ comment:
 flags:
   unittests:
     paths:
-      - "src/NTIX.Core/"
+      - "src/"
     carryforward: true

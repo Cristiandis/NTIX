@@ -1,0 +1,44 @@
+[package]
+name = "ntix-rs"
+version = "2.0.0"
+edition = "2024"
+authors = ["Cristiandis"]
+description = "nix-like utility for windows"
+repository = "https://github.com/Cristiandis/NTIX"
+
+[package.metadata.wix]
+upgrade-guid = "0253B954-960D-4862-89CB-62D50F19F6F2"
+path-guid = "F471AAD3-DCA2-4B0C-8A77-A7FDA644A296"
+license = false
+eula = false
+
+[[bin]]
+name = "ntix"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+async-trait = "0.1.92"
+clap = { version = "4.6.6", features = ["derive"] }
+colored = "3.1.1"
+dirs = "6.0.0"
+futures = "0.3.34"
+indicatif = "0.18.6"
+mlua = { version = "0.12.1", features = ["lua54", "vendored"] }
+pathdiff = "0.2.3"
+regex = "1.13.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "time"] }
+windows = { version = "0.62.2", features = ["Win32_Security", "Win32_Foundation", "Win32_Storage_FileSystem"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+
+[profile.dist]
+inherits = "release"
