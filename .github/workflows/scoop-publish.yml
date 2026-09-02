@@ -27,12 +27,10 @@ jobs:
           VERSION=${TAG#v}
 
           X64_URL="https://github.com/Cristiandis/NTIX/releases/download/v${VERSION}/ntix-rs-x86_64-pc-windows-gnu.zip"
-          ARM64_URL="https://github.com/Cristiandis/NTIX/releases/download/v${VERSION}/ntix-rs-aarch64-pc-windows-msvc.zip"
           X64_HASH=$(curl -sL "${X64_URL}" | sha256sum | cut -d' ' -f1)
-          ARM64_HASH=$(curl -sL "${ARM64_URL}" | sha256sum | cut -d' ' -f1)
-          export VERSION X64_URL X64_HASH ARM64_URL ARM64_HASH
+          export VERSION X64_URL X64_HASH
 
-          python3 -c 'import json,os;v=os.environ["VERSION"];m={"version":v,"description":"upgrade tools and keep tool configuration synchronized from a central source of truth","homepage":"https://github.com/Cristiandis/NTIX","license":"LGPL-2.1","architecture":{"64bit":{"url":os.environ["X64_URL"],"hash":os.environ["X64_HASH"]},"arm64":{"url":os.environ["ARM64_URL"],"hash":os.environ["ARM64_HASH"]}},"bin":"ntix.exe","checkver":"github","autoupdate":{"architecture":{"64bit":{"url":"https://github.com/Cristiandis/NTIX/releases/download/v$version/ntix-rs-x86_64-pc-windows-gnu.zip"},"arm64":{"url":"https://github.com/Cristiandis/NTIX/releases/download/v$version/ntix-rs-aarch64-pc-windows-msvc.zip"}}}};open("bucket/ntix.json","w").write(json.dumps(m,indent=4))'
+          python3 -c 'import json,os;v=os.environ["VERSION"];m={"version":v,"description":"upgrade tools and keep tool configuration synchronized from a central source of truth","homepage":"https://github.com/Cristiandis/NTIX","license":"LGPL-2.1","architecture":{"64bit":{"url":os.environ["X64_URL"],"hash":os.environ["X64_HASH"]}},"bin":"ntix.exe","checkver":"github","autoupdate":{"architecture":{"64bit":{"url":"https://github.com/Cristiandis/NTIX/releases/download/v$version/ntix-rs-x86_64-pc-windows-gnu.zip"}}}};open("bucket/ntix.json","w").write(json.dumps(m,indent=4))'
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

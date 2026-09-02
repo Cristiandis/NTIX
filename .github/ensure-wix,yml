@@ -1,7 +1,0 @@
-- name: Install WiX Toolset v3 (aarch64-pc-windows-msvc)
-  if: matrix.target == 'aarch64-pc-windows-msvc'
-  shell: pwsh
-  run: |
-    Invoke-WebRequest -Uri "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip" -OutFile "$env:RUNNER_TEMP\wix.zip"
-    Expand-Archive -Path "$env:RUNNER_TEMP\wix.zip" -DestinationPath "$env:RUNNER_TEMP\wix"
-    Add-Content $env:GITHUB_PATH "$env:RUNNER_TEMP\wix"
