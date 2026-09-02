@@ -2,62 +2,102 @@
 
 ## Options
 
-All option types in `NTIX.Core.Models`.
+Option types in `ntix_rs::models::options`.
 
 ### NTIXOptions
 
 Top-level options container.
 
-```csharp
-public record NTIXOptions(
-    WingetOptions Winget = null!,
-    ChocoOptions Chocolatey = null!,
-    ScoopOptions Scoop = null!
-);
+```rust
+pub struct NTIXOptions {
+    pub winget: WingetOptions,
+    pub chocolatey: ChocoOptions,
+    pub scoop: ScoopOptions,
+}
 ```
 
-Each property auto-initializes to a default (all disabled) if not provided.
+Each field defaults to a fully disabled (`Default`) value unless configured.
 
 ### WingetOptions
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `Enable` | `bool` | `false` | Enable winget support |
-| `AcceptAgreements` | `bool` | `false` | Auto-accept license agreements |
-| `Interactive` | `bool` | `false` | Show installer UI |
+```rust
+pub struct WingetOptions {
+    pub enable: bool,
+    pub accept_agreement: bool,
+    pub interactive: bool,
+}
+```
+
+| Field | Config key | Type | Default | Description |
+|-------|-----------|------|---------|-------------|
+| `enable` | `enable` | `bool` | `false` | Enable winget support |
+| `accept_agreement` | `acceptAgreements` | `bool` | `false` | Auto-accept license agreements |
+| `interactive` | `interactive` | `bool` | `false` | Show installer UI |
 
 ### ChocoOptions
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `Enable` | `bool` | `false` | Enable Chocolatey support |
-| `Yes` | `bool` | `false` | Pass `-y` to skip prompts |
-| `Force` | `bool` | `false` | Pass `--force` |
-| `IgnoreDependencies` | `bool` | `false` | Pass `--ignore-dependencies` |
-| `AllowDowngrade` | `bool` | `false` | Pass `--allow-downgrade` |
-| `SkipPowerShell` | `bool` | `false` | Pass `--skip-scripts` |
-| `Params` | `string?` | `null` | Custom `--params` value |
-| `Pre` | `bool` | `false` | Pass `--pre` for prereleases |
+```rust
+pub struct ChocoOptions {
+    pub enable: bool,
+    pub yes: bool,
+    pub force: bool,
+    pub ignore_dependencies: bool,
+    pub allow_downgrade: bool,
+    pub skip_power_shell: bool,
+    pub params: Option<String>,
+    pub pre: bool,
+}
+```
+
+| Field | Config key | Type | Default | Description |
+|-------|-----------|------|---------|-------------|
+| `enable` | `enable` | `bool` | `false` | Enable Chocolatey support |
+| `yes` | `yes` | `bool` | `false` | Pass `-y` to skip prompts |
+| `force` | `force` | `bool` | `false` | Pass `--force` |
+| `ignore_dependencies` | `ignoreDependencies` | `bool` | `false` | Pass `--ignore-dependencies` |
+| `allow_downgrade` | `allowDowngrade` | `bool` | `false` | Pass `--allow-downgrade` |
+| `skip_power_shell` | `skipPowerShell` | `bool` | `false` | Pass `--skip-scripts` |
+| `params` | `params` | `Option<String>` | `None` | Custom `--params` value |
+| `pre` | `pre` | `bool` | `false` | Pass `--pre` for prereleases |
 
 ### ScoopBucket
 
-```csharp
-public record ScoopBucket(string Name, string? Url = null);
+```rust
+pub struct ScoopBucket {
+    pub name: String,
+    pub url: Option<String>,
+}
+
+impl ScoopBucket {
+    pub fn new(name: impl Into<String>) -> Self;
+}
 ```
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `Name` | `string` | Bucket name (e.g. `"main"`, `"extras"`) |
-| `Url` | `string?` | Optional custom bucket URL |
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `String` | Bucket name (for example `"main"`, `"extras"`) |
+| `url` | `Option<String>` | Optional custom bucket URL |
 
 ### ScoopOptions
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `Enable` | `bool` | `false` | Enable Scoop support |
-| `Buckets` | `List<ScoopBucket>` | `[main, extras, versions]` | Buckets to ensure exist |
-| `Global` | `bool` | `false` | Pass `-g` for global installs |
-| `Independent` | `bool` | `false` | Pass `-i` |
-| `NoCache` | `bool` | `false` | Pass `-k` |
-| `SkipHashCheck` | `bool` | `false` | Pass `-s` |
-| `Arch` | `string?` | `null` | Pass `--arch <value>` |
+```rust
+pub struct ScoopOptions {
+    pub enable: bool,
+    pub buckets: Vec<ScoopBucket>,
+    pub global: bool,
+    pub independent: bool,
+    pub no_cache: bool,
+    pub skip_hash_check: bool,
+    pub arch: Option<String>,
+}
+```
+
+| Field | Config key | Type | Default | Description |
+|-------|-----------|------|---------|-------------|
+| `enable` | `enable` | `bool` | `false` | Enable Scoop support |
+| `buckets` | `buckets` | `Vec<ScoopBucket>` | `[main, extras, versions]` | Buckets to ensure exist |
+| `global` | `global` | `bool` | `false` | Pass `-g` for global installs |
+| `independent` | `independent` | `bool` | `false` | Pass `-i` |
+| `no_cache` | `noCache` | `bool` | `false` | Pass `-k` |
+| `skip_hash_check` | `skipHashCheck` | `bool` | `false` | Pass `-s` |
+| `arch` | `arch` | `Option<String>` | `None` | Pass `--arch <value>` |

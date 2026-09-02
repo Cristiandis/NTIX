@@ -15,5 +15,5 @@ ntix <command> <config-path> [options]
 ### Global behavior
 
 * **Validation**: NTIX validates that packages exist in their respective managers before listing them. Non-existent packages are removed from the diff with a warning.
-* **Colors**: Output is color-coded - green for install, yellow for upgrade, cyan for adopt, dark red for remove. Package managers are colored: purple for winget, blue for chocolatey, pink for scoop.
+* **Colors**: Output is color-coded - green for install, yellow for upgrade, cyan for adopt, red for remove. Package managers are colored: purple for winget, blue for chocolatey, pink for scoop.
 * **Warnings** are yellow, **errors** are red.

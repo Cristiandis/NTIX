@@ -1,45 +1,53 @@
-# DiffEngine
+# Diff
 
 ## DiffEngine
 
-Computes the difference between desired state (config) and current state.
+Computes the difference between the desired state (config) and the current state.
 
-```csharp
-namespace NTIX.Core.Diff;
+```rust
+use ntix_rs::diff::diff_engine;
 ```
 
-### ComputeDiffAsync
+### compute_diff
 
-```csharp
-public static async Task<DiffResult> ComputeDiffAsync(
-    NTIXConfig config,
-    State state,
-    InstalledPackages? installed = null,
-    IWingetManager? wingetManager = null,
-    bool validatePackages = true,
-    bool adoptMode = false,
-    bool upgradeMode = false,
-    IProgress<string>? progress = null);
+```rust
+pub async fn compute_diff(
+    config: &NTIXConfig,
+    state: &State,
+    winget_manager: Option<&dyn WingetManagerTrait>,
+    presence: Option<&dyn ManagerPresence>,
+    runner: Option<&dyn CommandRunner>,
+    adopt_mode: bool,
+    upgrade_mode: bool,
+    validate_packages: bool,
+    installed: Option<&InstalledPackages>,
+    progress: &ProgressBar,
+) -> Result<DiffResult, Box<dyn Error>>
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `config` | `NTIXConfig` | required | Desired package state |
-| `state` | `State` | required | Current tracked state |
-| `installed` | `InstalledPackages?` | `null` | Pre-fetched packages; auto-discovers if null |
-| `wingetManager` | `IWingetManager?` | `null` | Injected winget manager; creates new if null |
-| `validatePackages` | `bool` | `true` | Validate package existence in remote repos |
-| `adoptMode` | `bool` | `false` | Adopt externally-installed packages into state |
-| `upgradeMode` | `bool` | `false` | Check for available upgrades |
-| `progress` | `IProgress<string>?` | `null` | Status message reporter |
+| `config` | `&NTIXConfig` | required | Desired package state |
+| `state` | `&State` | required | Current tracked state |
+| `winget_manager` | `Option<&dyn WingetManagerTrait>` | `None` | Injected winget manager; uses the real `WingetManager` if `None` |
+| `presence` | `Option<&dyn ManagerPresence>` | `None` | Injected choco/scoop presence; probes the system if `None` |
+| `runner` | `Option<&dyn CommandRunner>` | `None` | Injected command runner; uses `ProcessCommandRunner` if `None` |
+| `adopt_mode` | `bool` | `false` | Adopt externally installed packages into state |
+| `upgrade_mode` | `bool` | `false` | Check for available upgrades |
+| `validate_packages` | `bool` | `true` | Validate package existence in remote repos |
+| `installed` | `Option<&InstalledPackages>` | `None` | Pre-fetched installed packages; auto-discovers if `None` |
+| `progress` | `&ProgressBar` | required | Status message reporter (an indicatif spinner) |
 
-**Returns:** `Task<DiffResult>`
+**Returns:** `Result<DiffResult, Box<dyn Error>>`
 
 ### Execution Flow
 
 1. Validates enabled package managers are installed
-2. Discovers installed packages
-3. Fetches upgradable packages (only if `upgradeMode` and source has unpinned packages)
-4. Classifies each declared package into: `ToInstall`, `ToUpgrade`, `ToSkip`, `ToAdopt`
-5. Validates package existence (removes invalid from `ToInstall`)
-6. Finds orphans (in state but not in config) -> `ToRemove`
+2. Discovers installed packages (if `installed` is `None`)
+3. Fetches upgradable packages for each enabled source that has unpinned entries (only in `upgrade_mode`)
+4. Classifies each declared package into `to_install`, `to_upgrade`, `to_skip`, or `to_adopt`
+5. Validates package existence (removes invalid packages from `to_install` and records a warning)
+6. Finds orphans (in state but not in config) and moves them to `to_remove`
+7. Computes scoop bucket additions and removals (only when scoop is enabled)
+
+Note: orphan detection, upgrade detection, and bucket diff all run only for managers that are enabled and confirmed installed.

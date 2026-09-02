@@ -23,24 +23,31 @@ By default, `diff` does **not** check for upgrades - it only shows installs, rem
 
 ### Output
 
-| Section               | Color    | Meaning                              |
-| --------------------- | -------- | ------------------------------------ |
-| **To install**        | Green    | Packages not yet installed           |
-| **To upgrade**        | Yellow   | Unpinned packages with newer version (only with `-u`) |
-| **To adopt**          | Cyan     | Installed packages not yet in state  |
-| **Already installed** | Default  | Packages at the correct version      |
-| **To remove**         | Dark red | Orphaned packages to clean up        |
+NTIX renders a tree with section headers, color-coded by action.
 
-Manager names: winget (purple), chocolatey (blue), scoop (pink).
+| Section | Symbol | Color | Meaning |
+| ------- | ------ | ----- | ------- |
+| imports | `imports` | Dim | Imported config files |
+| **To install** | `↑` | Green | Packages not yet installed |
+| **To upgrade** | `↑` | Yellow | Unpinned packages with newer version (only with `-u`) |
+| **To adopt** | `✚` | Cyan | Installed packages not yet in state (only with `-a`) |
+| **Already managed** | `✓` | Dim | Packages at the correct version |
+| **Buckets to add** | `↑` | Green | Scoop buckets to add (only when scoop is enabled) |
+| **Buckets to remove** | `↓` | Red | Scoop buckets to remove |
+| **Orphans** | `✗` | Red | Orphaned packages to clean up |
+
+Manager names are colored: winget (purple), chocolatey (blue), scoop (pink).
 
 ### Example
 
 ```
-To install:
-  winget: Google.Chrome (latest)
-  winget: 7zip.7zip (23.01)
-  chocolatey: ripgrep (latest)
-  scoop: fd (latest)
+config.lua
+├── ↑ To install (3)
+│   ├── winget: Google.Chrome
+│   ├── winget: 7zip.7zip (23.01)
+│   └── scoop: fd
+└── ✓ Already managed (1)
+    └── chocolatey: ripgrep
 ```
 
 Warnings appear in yellow for packages not found in their manager.

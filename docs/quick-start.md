@@ -14,19 +14,14 @@ scoop bucket add ntix https://github.com/Cristiandis/scoop-ntix
 scoop install ntix
 ```
 
-```powershell
-# PowerShell script
-iwr -useb https://raw.githubusercontent.com/Cristiandis/NTIX/master/install.ps1 | iex
-```
-
 ```bash
 # Build from source
 git clone https://github.com/Cristiandis/NTIX.git
 cd NTIX
-dotnet publish src/NTIX.Cli -c Release -r win-x64
+cargo build --release
 ```
 
-The published binary will be in `src/NTIX.Cli/bin/Release/net10.0/win-x64/publish/`.
+The release artifacts (ZIP and MSI for both x64 and arm64) are built by `cargo-dist`. The binary is at `target/x86_64-pc-windows-gnu/release/ntix.exe`.
 {% endstep %}
 
 {% step %}

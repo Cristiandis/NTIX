@@ -1,25 +1,25 @@
-# ConfigLoader
+# Config
 
 ## ConfigLoader
 
-Parses Lua configuration files into `NTIXConfig` objects.
+Parses Lua configuration files into `NTIXConfig` structs.
 
-```csharp
-namespace NTIX.Core.Config;
+```rust
+use ntix_rs::config::config_loader;
 ```
 
-### Members
+### Items
 
-| Member | Signature | Returns | Description |
-|--------|-----------|---------|-------------|
-| `DefaultConfigPath` | `static readonly string` | `string` | `~/ntix/config.lua` |
-| `EnsureDefaultConfig` | `string EnsureDefaultConfig(string? configPath)` | `string` | Creates default config if missing; returns resolved path |
-| `Load` | `NTIXConfig Load(string configPath)` | `NTIXConfig` | Loads and parses a Lua config file |
-| `LoadFromString` | `NTIXConfig LoadFromString(string luaScript, string configPath)` | `NTIXConfig` | Parses a Lua script string |
+| Item | Signature | Description |
+|------|-----------|-------------|
+| `DEFAULT_CONFIG_PATH` | `LazyLock<PathBuf>` | `~/ntix/config.lua` |
+| `ensure_default_config` | `fn ensure_default_config(config_path: Option<PathBuf>) -> PathBuf` | Creates the default config if missing and returns the resolved path |
+| `load` | `fn load(config_path: PathBuf) -> Result<NTIXConfig, Box<dyn Error>>` | Loads and parses a Lua config file from disk |
+| `load_from_string` | `fn load_from_string(lua_script: &str, config_path: PathBuf) -> Result<NTIXConfig, Box<dyn Error>>` | Parses a Lua script string, resolving imports relative to `config_path` |
 
 ### Lua Config Contract
 
-The script must return a table with `options` and `pkgs`:
+The script must return a table with `options` and `pkgs` keys:
 
 ```lua
 return {
@@ -40,12 +40,15 @@ return {
 
 ```lua
 import("shared/packages.lua")
-import({ path = "env/work.lua", merge = true })
+import({ "./base.lua", "../../packages/scoop.lua" })
 ```
 
-Imports and merges additional Lua config files. Paths are resolved relative to the importing file. Package arrays are deduplicated by ID (last wins). Options tables are deep-merged.
+`import()` accepts either a single path string or an array of path strings. Paths are resolved relative to the importing file. Nested `import()` calls work while an imported script runs. Package arrays are deduplicated by ID (last wins); options tables are deep-merged.
 
-### Exceptions
+### Errors
 
-- `FileNotFoundException` - config file not found
-- `InvalidOperationException` - Lua syntax or runtime error
+- Config file not found
+- Lua syntax or runtime error
+- `return` value that is not a table
+- Missing top-level `options` or `pkgs` table
+- Import file not found (referenced from config)

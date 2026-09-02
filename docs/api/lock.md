@@ -1,37 +1,39 @@
-# LockFile
+# Lock
 
 ## LockFile
 
 Prevents concurrent `ntix apply` execution via an exclusive file lock.
 
-```csharp
-namespace NTIX.Core.Lock;
+```rust
+use ntix_rs::lock::lock_file::LockFile;
 ```
 
 ### API
 
-```csharp
-public class LockFile : IDisposable
-{
-    public LockFile(string? lockPath = null, bool shouldLock = true);
-    public void Dispose();
-    public static string GetDefaultLockPath();
+```rust
+pub struct LockFile {
+    lock_stream: Option<File>,
+    lock_path: PathBuf,
 }
+
+impl LockFile {
+    pub fn new(lock_path: Option<PathBuf>, should_lock: bool)
+        -> Result<Self, Box<dyn std::error::Error>>;
+    pub fn get_default_lock_path() -> Result<PathBuf, Box<dyn std::error::Error>>;
+}
+
+impl Drop for LockFile { /* releases the lock and removes the file */ }
 ```
 
 | Member | Description |
 |--------|-------------|
-| Constructor | Acquires exclusive lock at `lockPath` (or default). Throws `InvalidOperationException` if locked by another process. |
-| `Dispose()` | Releases lock and deletes the lock file. Idempotent. |
-| `GetDefaultLockPath()` | Returns `%LOCALAPPDATA%/ntix/apply.lock` |
+| `new` | Acquires an exclusive lock at `lock_path` (or the default). Returns `Err` if already locked by another process. Pass `should_lock = false` to create an unlocked instance. |
+| `get_default_lock_path` | Returns `%LOCALAPPDATA%/ntix/apply.lock` |
+| `Drop` | Releases the lock stream and deletes the lock file |
 
-### Usage
+### Behavior
 
-```csharp
-using var lockFile = new LockFile();
-// critical section - only one ntix apply can run
-```
-
-### Stale Lock Recovery
-
-If a lock file exists but the owning process is no longer running, the lock is automatically recovered. Lock files contain `PID@UnixTimestamp` for detection.
+- On Windows, opens the lock file with `CreateFileW` using a zero share mode, so a second open fails while held
+- On non-Windows hosts, uses a create-and-truncate open (advisory)
+- The lock file body contains `PID@UnixTimestamp`, which helps identify stale locks
+- When locking fails, the error message suggests deleting the lock file if it is stale

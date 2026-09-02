@@ -30,9 +30,12 @@ By default, `apply` does **not** check for upgrades - it only installs missing p
 
 1. Loads config
 2. Computes diff
-3. Acquires lock file
-4. Installs packages, adopts packages, and removes orphans
-5. Upgrades packages (only with `-u`)
-6. Updates state file after each operation
+3. Acquires the lock file (fails if another `apply` is running)
+4. Adds missing scoop buckets and removes orphaned ones (if scoop is enabled)
+5. Installs packages
+6. Upgrades packages (only with `-u`)
+7. Removes orphaned packages (unless `--no-gc`)
+8. Adopts installed packages into state (only with `-a`)
+9. Updates the state file after each operation
 
 Orphaned packages are removed automatically. Use `--no-gc` to skip.

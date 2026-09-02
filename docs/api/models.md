@@ -2,129 +2,153 @@
 
 ## Models
 
-All types in `NTIX.Core.Models`.
+Data types in `ntix_rs::models`.
 
 ### PackageEntry
 
 A package declaration from the config file.
 
-```csharp
-public record PackageEntry(string Id, string? Version = null);
+```rust
+pub struct PackageEntry {
+    pub id: String,
+    pub version: Option<String>,
+}
+
+impl PackageEntry {
+    pub fn new(id: impl Into<String>) -> Self;
+}
 ```
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `Id` | `string` | required | Package identifier |
-| `Version` | `string?` | `null` | Pinned version; `null` = latest |
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | `String` | required | Package identifier |
+| `version` | `Option<String>` | `None` | Pinned version; `None` = latest |
 
 ### PackageSpec
 
 A resolved package with its source manager.
 
-```csharp
-public record PackageSpec(string Id, string? Version, string Source);
+```rust
+pub struct PackageSpec {
+    pub id: String,
+    pub version: Option<String>,
+    pub source: String,
+}
 ```
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `Id` | `string` | Package identifier |
-| `Version` | `string?` | Resolved version (null if unpinned) |
-| `Source` | `string` | `"winget"`, `"chocolatey"`, or `"scoop"` |
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `String` | Package identifier |
+| `version` | `Option<String>` | Resolved version (None if unpinned) |
+| `source` | `String` | `"winget"`, `"chocolatey"`, or `"scoop"` |
 
 ### UpgradeInfo
 
 Version information for an available upgrade.
 
-```csharp
-public record UpgradeInfo(string CurrentVersion, string AvailableVersion);
+```rust
+pub struct UpgradeInfo {
+    pub current_version: String,
+    pub available_version: String,
+}
+
+impl UpgradeInfo {
+    pub fn new(current_version: impl Into<String>, available_version: impl Into<String>) -> Self;
+}
 ```
 
 ### InstalledPackages
 
 Packages currently installed on the system.
 
-```csharp
-public record InstalledPackages(
-    Dictionary<string, string>? Winget = null,
-    Dictionary<string, string>? Chocolatey = null,
-    Dictionary<string, string>? Scoop = null
-);
+```rust
+pub struct InstalledPackages {
+    pub winget: HashMap<String, String>,
+    pub chocolatey: HashMap<String, String>,
+    pub scoop: HashMap<String, String>,
+}
 ```
 
-Each dictionary maps package ID to installed version string.
+Each map maps package ID to the installed version string.
 
 ### State
 
 NTIX's tracked package state.
 
-```csharp
-public record State(
-    int Version = 1,
-    Dictionary<string, string>? Winget = null,
-    Dictionary<string, string>? Chocolatey = null,
-    Dictionary<string, string>? Scoop = null,
-    Dictionary<string, string?>? ScoopBuckets = null
-);
+```rust
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct State {
+    pub version: i32,
+    pub winget: HashMap<String, String>,
+    pub chocolatey: HashMap<String, String>,
+    pub scoop: HashMap<String, String>,
+    pub scoop_buckets: HashMap<String, Option<String>>,
+}
 ```
 
-| Property | Type | Default | Description |
-|----------|------|---------|-------------|
-| `Version` | `int` | `1` | State file format version |
-| `Winget` | `Dictionary<string, string>` | `new()` | Tracked winget packages |
-| `Chocolatey` | `Dictionary<string, string>` | `new()` | Tracked chocolatey packages |
-| `Scoop` | `Dictionary<string, string>` | `new()` | Tracked scoop packages |
-| `ScoopBuckets` | `Dictionary<string, string?>` | `new()` | Scoop buckets added by NTIX (name → URL) |
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `version` | `i32` | `1` | State file format version |
+| `winget` | `HashMap<String, String>` | empty | Tracked winget packages |
+| `chocolatey` | `HashMap<String, String>` | empty | Tracked chocolatey packages |
+| `scoop` | `HashMap<String, String>` | empty | Tracked scoop packages |
+| `scoop_buckets` | `HashMap<String, Option<String>>` | empty | Scoop buckets added by NTIX (name to URL) |
 
 ### DiffResult
 
 The computed set of actions to apply.
 
-```csharp
-public record DiffResult(
-    List<PackageSpec> ToInstall = default!,
-    List<PackageSpec> ToUpgrade = default!,
-    List<PackageSpec> ToSkip = default!,
-    List<PackageSpec> ToRemove = default!,
-    List<PackageSpec> ToAdopt = default!,
-    List<ScoopBucket> BucketsToAdd = default!,
-    List<ScoopBucket> BucketsToRemove = default!,
-    string? Error = null,
-    List<string>? Warnings = null
-);
+```rust
+pub struct DiffResult {
+    pub to_install: Vec<PackageSpec>,
+    pub to_upgrade: Vec<PackageSpec>,
+    pub to_skip: Vec<PackageSpec>,
+    pub to_remove: Vec<PackageSpec>,
+    pub to_adopt: Vec<PackageSpec>,
+    pub buckets_to_add: Vec<ScoopBucket>,
+    pub buckets_to_remove: Vec<ScoopBucket>,
+    pub warnings: Vec<String>,
+}
+
+impl DiffResult {
+    pub fn is_empty(&self) -> bool;
+}
 ```
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `ToInstall` | `List<PackageSpec>` | Packages to install |
-| `ToUpgrade` | `List<PackageSpec>` | Packages to upgrade (requires `--upgrade`) |
-| `ToSkip` | `List<PackageSpec>` | Packages already at desired state |
-| `ToRemove` | `List<PackageSpec>` | Orphaned packages to remove |
-| `ToAdopt` | `List<PackageSpec>` | External installs to adopt into state |
-| `BucketsToAdd` | `List<ScoopBucket>` | Scoop buckets to add |
-| `BucketsToRemove` | `List<ScoopBucket>` | NTIX-tracked scoop buckets to remove |
-| `Error` | `string?` | Fatal error, if any |
-| `Warnings` | `List<string>` | Non-fatal warnings |
-| **`IsEmpty`** | `bool` | True if all action lists are empty |
-| **`HasError`** | `bool` | True if `Error` is non-empty |
+| Field | Type | Description |
+|-------|------|-------------|
+| `to_install` | `Vec<PackageSpec>` | Packages to install |
+| `to_upgrade` | `Vec<PackageSpec>` | Packages to upgrade (only with `--upgrade`) |
+| `to_skip` | `Vec<PackageSpec>` | Packages already at desired state |
+| `to_remove` | `Vec<PackageSpec>` | Orphaned packages to remove |
+| `to_adopt` | `Vec<PackageSpec>` | Externally installed packages to adopt into state |
+| `buckets_to_add` | `Vec<ScoopBucket>` | Scoop buckets to add |
+| `buckets_to_remove` | `Vec<ScoopBucket>` | Scoop buckets tracked by NTIX but no longer configured |
+| `warnings` | `Vec<String>` | Non-fatal warnings |
+| `is_empty()` | `bool` | True if all action lists are empty (warnings excluded) |
 
 ### ImportNode
 
-Tracks the import tree from config parsing.
+Tracks the import tree produced while parsing configuration.
 
-```csharp
-public record ImportNode(string Path, List<ImportNode> Children);
+```rust
+pub struct ImportNode {
+    pub path: PathBuf,
+    pub children: Vec<ImportNode>,
+}
 ```
 
 ### NTIXConfig
 
 The fully parsed configuration.
 
-```csharp
-public record NTIXConfig(
-    NTIXOptions Options,
-    List<PackageEntry> WingetPackages = default!,
-    List<PackageEntry> ChocoPackages = default!,
-    List<PackageEntry> ScoopPackages = default!,
-    List<ImportNode> Imports = default!
-);
+```rust
+pub struct NTIXConfig {
+    pub options: NTIXOptions,
+    pub winget_packages: Vec<PackageEntry>,
+    pub choco_packages: Vec<PackageEntry>,
+    pub scoop_packages: Vec<PackageEntry>,
+    pub imports: Vec<ImportNode>,
+}
 ```

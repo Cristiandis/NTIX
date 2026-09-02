@@ -1,25 +1,25 @@
-# StateService
+# State
 
 ## StateService
 
 Manages the JSON state file that tracks NTIX-managed packages.
 
-```csharp
-namespace NTIX.Core.StateManagement;
+```rust
+use ntix_rs::state_management::state_service;
 ```
 
-### Members
+### Items
 
-| Method | Signature | Returns | Description |
-|--------|-----------|---------|-------------|
-| `GetStatePath` | `string GetStatePath()` | `string` | Returns `%LOCALAPPDATA%/ntix/state.json` |
-| `LoadState` | `State? LoadState(string? path = null)` | `State?` | Loads state from disk; null if missing/corrupt |
-| `SaveState` | `bool SaveState(State state, string? path = null, int maxRetries = 3)` | `bool` | Atomic save with retry |
-| `SaveStateAsync` | `Task<bool> SaveStateAsync(State state, string? path = null, int maxRetries = 3, CancellationToken ct = default)` | `Task<bool>` | Async atomic save |
+| Item | Signature | Description |
+|------|-----------|-------------|
+| `get_state_path` | `fn get_state_path() -> Result<PathBuf, Box<dyn Error>>` | Returns `%LOCALAPPDATA%/ntix/state.json` |
+| `load_state` | `fn load_state(path: Option<&Path>) -> Option<State>` | Loads state from disk; `None` if missing or corrupt |
+| `save_state` | `fn save_state(state: &State, path: Option<&Path>, max_retries: u32) -> Result<bool, Box<dyn Error>>` | Atomic save with retry; returns `true` on success |
 
 ### Behavior
 
-- **Atomic writes**: writes to `.tmp` then moves to target
-- **Retry**: up to 3 attempts with exponential backoff (50ms * attempt)
+- **Atomic writes**: writes to a `.tmp` file, then renames it to the target
+- **Retry**: up to `max_retries` attempts with linear backoff (`50ms * attempt`)
 - **Stale cleanup**: removes leftover `.tmp` files before loading
-- **Serialization**: `System.Text.Json` with source-generated context (AOT-safe)
+- **Serialization**: `serde_json` with camelCase field names (`scoopBuckets`, `scoop_buckets` map key)
+- **Path resolution**: a `None` or empty path resolves to `get_state_path()`
