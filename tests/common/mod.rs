@@ -88,6 +88,7 @@ pub struct MockWingetManager {
     pub upgrade_result: bool,
     pub install_calls: Mutex<Vec<(String, Option<String>, WingetOptions)>>,
     pub upgrade_calls: Mutex<usize>,
+    pub uninstall_calls: Mutex<usize>,
     pub package_exists_calls: Mutex<Vec<String>>,
     pub package_exists_error: Option<Box<dyn std::error::Error + Send + Sync>>,
     pub package_exists_by_id: Option<HashMap<String, bool>>,
@@ -107,6 +108,7 @@ impl MockWingetManager {
             upgrade_result: true,
             install_calls: Mutex::new(Vec::new()),
             upgrade_calls: Mutex::new(0),
+            uninstall_calls: Mutex::new(0),
             package_exists_calls: Mutex::new(Vec::new()),
             package_exists_error: None,
             package_exists_by_id: None,
@@ -120,6 +122,10 @@ impl MockWingetManager {
 
     pub fn upgrade_call_count(&self) -> usize {
         *self.upgrade_calls.lock().unwrap()
+    }
+
+    pub fn uninstall_call_count(&self) -> usize {
+        *self.uninstall_calls.lock().unwrap()
     }
 
     pub fn package_exists_call_count(&self) -> usize {
@@ -186,6 +192,7 @@ impl WingetManagerTrait for MockWingetManager {
         _on_error: Option<LineCallback<'_>>,
     ) -> bool {
         let _ = id;
+        *self.uninstall_calls.lock().unwrap() += 1;
         self.uninstall_result
     }
 

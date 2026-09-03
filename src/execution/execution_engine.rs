@@ -52,12 +52,14 @@ pub async fn apply_diff(
     let cmd: &dyn CommandRunner = runner.unwrap_or(&ProcessCommandRunner);
 
     if let Some(config) = config {
-        let validation = package_manager_detector::validate_managers(
+        let validation = package_manager_detector::validate_managers_async(
             options,
             config,
+            winget_manager,
             choco_installed,
             scoop_installed,
-        );
+        )
+        .await;
         for w in &validation.warnings {
             if !diff.warnings.contains(w)
                 && let Some(cb) = on_error
@@ -308,8 +310,9 @@ async fn run_operation(
                     .await
             }
             Operation::Remove => {
-                let build_result = command_builder::build_winget_uninstall(&pkg.id, options.winget);
-                run_built_command(cmd, build_result, on_output, on_error).await
+                manager
+                    .uninstall(&pkg.id, options.winget, on_output, on_error)
+                    .await
             }
         },
         "chocolatey" => {

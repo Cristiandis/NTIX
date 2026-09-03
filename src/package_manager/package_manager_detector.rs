@@ -127,6 +127,11 @@ fn collect_warnings(
             .push("[warn] Scoop packages declared but scoop not enabled in options".to_string());
     }
 
+    if !config.winget_packages.is_empty() && !options.winget.enable {
+        warnings
+            .push("[warn] Winget packages declared but winget not enabled in options".to_string());
+    }
+
     warnings
 }
 
@@ -300,7 +305,7 @@ pub async fn validate_choco_packages_exist_async(
 
     let tasks = ids.iter().map(|id| async move {
         let exists = validate_choco_package_exists_async(id, cmd).await;
-        (id.to_lowercase(), exists)
+        (id.clone(), exists)
     });
 
     futures::future::join_all(tasks).await.into_iter().collect()
@@ -314,7 +319,7 @@ pub async fn validate_scoop_packages_exist_async(
 
     let tasks = ids.iter().map(|id| async move {
         let exists = validate_scoop_package_exists_async(id, cmd).await;
-        (id.to_lowercase(), exists)
+        (id.clone(), exists)
     });
 
     futures::future::join_all(tasks).await.into_iter().collect()

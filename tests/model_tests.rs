@@ -127,61 +127,6 @@ fn diff_result_is_empty_true_when_only_to_skip() {
 }
 
 #[test]
-fn build_winget_uninstall_default_flags() {
-    let cmd = command_builder::build_winget_uninstall("Git.Git", WingetOptions::default()).unwrap();
-    // Both flags default to false: no interaction flag is added.
-    assert_eq!(cmd, "winget uninstall --id Git.Git --exact");
-}
-
-#[test]
-fn build_winget_uninstall_with_accept_agreements() {
-    let opts = WingetOptions {
-        accept_agreement: true,
-        ..Default::default()
-    };
-    let cmd = command_builder::build_winget_uninstall("Git.Git", opts).unwrap();
-    assert!(cmd.contains("--accept-source-agreements"));
-    assert!(!cmd.contains("--accept-package-agreements"));
-}
-
-#[test]
-fn build_winget_uninstall_fully_interactive() {
-    let opts = WingetOptions {
-        silent: false,
-        disable_interactivity: false,
-        ..Default::default()
-    };
-    let cmd = command_builder::build_winget_uninstall("Git.Git", opts).unwrap();
-    assert!(!cmd.contains("--silent"));
-    assert!(!cmd.contains("--disable-interactivity"));
-    assert!(!cmd.contains("--accept"));
-}
-
-#[test]
-fn build_winget_uninstall_disable_interactivity() {
-    let opts = WingetOptions {
-        silent: false,
-        disable_interactivity: true,
-        ..Default::default()
-    };
-    let cmd = command_builder::build_winget_uninstall("Git.Git", opts).unwrap();
-    assert!(cmd.contains("--disable-interactivity"));
-    assert!(!cmd.contains("--silent"));
-}
-
-#[test]
-fn build_winget_uninstall_silent_takes_precedence() {
-    let opts = WingetOptions {
-        silent: true,
-        disable_interactivity: true,
-        ..Default::default()
-    };
-    let cmd = command_builder::build_winget_uninstall("Git.Git", opts).unwrap();
-    assert!(cmd.contains("--silent"));
-    assert!(!cmd.contains("--disable-interactivity"));
-}
-
-#[test]
 fn installed_packages_defaults_empty() {
     let pkg = InstalledPackages::default();
     assert!(pkg.winget.is_empty());

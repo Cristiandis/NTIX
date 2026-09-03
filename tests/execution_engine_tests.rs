@@ -177,7 +177,7 @@ async fn apply_diff_async_winget_upgrade_uses_mock_manager() {
 
 #[tokio::test]
 async fn apply_diff_async_winget_uninstall_uses_mock_manager() {
-    let mock_runner = MockCommandRunner::new();
+    let mock = MockWingetManager::new();
 
     let diff = DiffResult {
         to_remove: vec![spec("test-pkg", Some("1.0"), "winget")],
@@ -196,19 +196,14 @@ async fn apply_diff_async_winget_uninstall_uses_mock_manager() {
         &mut state,
         &path,
         false,
+        Some(&mock),
         None,
         None,
-        Some(&mock_runner),
     )
     .await;
     assert!(result);
+    assert_eq!(mock.uninstall_call_count(), 1);
     assert!(!state.winget.contains_key("test-pkg"));
-    assert!(
-        mock_runner
-            .commands()
-            .iter()
-            .any(|c| c.contains("winget uninstall"))
-    );
     remove_path(&path);
 }
 
@@ -1615,7 +1610,7 @@ async fn apply_diff_async_on_output_called_for_upgrade() {
 
 #[tokio::test]
 async fn apply_diff_async_on_output_called_for_remove() {
-    let mock_runner = MockCommandRunner::new();
+    let mock = MockWingetManager::new();
     let diff = DiffResult {
         to_remove: vec![spec("test-pkg", Some("1.0"), "winget")],
         ..Default::default()
@@ -1637,14 +1632,14 @@ async fn apply_diff_async_on_output_called_for_remove() {
         &mut state,
         &path,
         false,
-        None,
+        Some(&mock),
         None,
         None,
         None,
         false,
         Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
         None,
-        Some(&mock_runner),
+        None,
     )
     .await;
 

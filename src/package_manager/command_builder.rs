@@ -2,7 +2,7 @@ use std::{io, sync::LazyLock};
 
 use regex::Regex;
 
-use crate::models::options::{ChocoOptions, ScoopOptions, WingetOptions};
+use crate::models::options::{ChocoOptions, ScoopOptions};
 
 static SAFE_ID_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[a-zA-Z0-9._\-/]+$").unwrap());
@@ -135,23 +135,6 @@ pub fn build_choco_uninstall(
     };
     if opts.ignore_dependencies {
         cmd += " --ignore-dependencies";
-    };
-    Ok(cmd)
-}
-
-pub fn build_winget_uninstall(
-    id: &str,
-    opts: WingetOptions,
-) -> Result<String, Box<dyn std::error::Error>> {
-    validate_id(id)?;
-    let mut cmd = format!("winget uninstall --id {id} --exact");
-    if opts.accept_agreement {
-        cmd += " --accept-source-agreements";
-    };
-    if opts.silent {
-        cmd += " --silent";
-    } else if opts.disable_interactivity {
-        cmd += " --disable-interactivity";
     };
     Ok(cmd)
 }

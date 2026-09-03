@@ -128,7 +128,7 @@ async fn compute_diff_package_in_state_not_in_config_to_remove() {
 }
 
 #[tokio::test]
-async fn compute_diff_package_in_both_state_and_config_to_skip() {
+async fn compute_diff_pinned_package_in_state_but_not_installed_to_install() {
     let mut mock = MockWingetManager::new();
     mock.package_exists_result = Some(true);
     let config = ntix_config(
@@ -145,9 +145,10 @@ async fn compute_diff_package_in_both_state_and_config_to_skip() {
     state
         .winget
         .insert("testpkg".to_string(), "1.0".to_string());
-    let diff = diff_with(&config, &state, None, Some(&mock), None, true, false, false).await;
-    assert_eq!(diff.to_skip.len(), 1);
-    assert_eq!(diff.to_skip[0].id, "testpkg");
+    let diff: DiffResult =
+        diff_with(&config, &state, None, Some(&mock), None, true, false, false).await;
+    assert_eq!(diff.to_install.len(), 1);
+    assert_eq!(diff.to_install[0].id, "testpkg");
 }
 
 #[tokio::test]

@@ -249,8 +249,10 @@ fn classify_packages(
                     ci_lookup(state_dict, &pkg.id).expect("in_state implies a state entry");
                 if !state_version.eq_ignore_ascii_case(pkg_version) {
                     result.to_install.push(spec);
-                } else {
+                } else if is_installed {
                     result.to_skip.push(spec);
+                } else {
+                    result.to_install.push(spec);
                 }
             } else if is_installed && adopt_mode {
                 let installed_version = ci_lookup(installed_dict, &pkg.id)
@@ -384,7 +386,7 @@ async fn validate_package_availability(
 
 fn new_pkg_ids(pkgs: &[PackageSpec], state_dict: &HashMap<String, String>) -> Vec<String> {
     pkgs.iter()
-        .filter(|p| !state_dict.contains_key(&p.id))
+        .filter(|p| ci_lookup(state_dict, &p.id).is_none())
         .map(|p| p.id.clone())
         .collect()
 }
