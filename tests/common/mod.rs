@@ -5,6 +5,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use ntix_rs::models::installed_packages::UpgradeInfo;
+use ntix_rs::models::options::WingetOptions;
 use ntix_rs::package_manager::command_runner::{CommandRunner, LineCallback};
 use ntix_rs::package_manager::manager_presence::ManagerPresence;
 use ntix_rs::package_manager::winget_manager_trait::WingetManagerTrait;
@@ -124,7 +125,7 @@ pub struct MockWingetManager {
     pub install_per_id: Option<Vec<(String, bool)>>,
     pub uninstall_result: bool,
     pub upgrade_result: bool,
-    pub install_calls: Mutex<Vec<(String, Option<String>, bool, bool)>>,
+    pub install_calls: Mutex<Vec<(String, Option<String>, WingetOptions)>>,
     pub upgrade_calls: Mutex<usize>,
     pub package_exists_calls: Mutex<Vec<String>>,
     pub package_exists_error: Option<Box<dyn std::error::Error + Send + Sync>>,
@@ -197,14 +198,14 @@ impl WingetManagerTrait for MockWingetManager {
         &self,
         id: &str,
         version: Option<&str>,
-        accept_agreements: bool,
-        silent: bool,
+        options: WingetOptions,
+        _on_output: Option<LineCallback<'_>>,
+        _on_error: Option<LineCallback<'_>>,
     ) -> bool {
         self.install_calls.lock().unwrap().push((
             id.to_string(),
             version.map(|s| s.to_string()),
-            accept_agreements,
-            silent,
+            options,
         ));
         if let Some(per_id) = &self.install_per_id {
             for (pid, result) in per_id {
@@ -216,12 +217,24 @@ impl WingetManagerTrait for MockWingetManager {
         self.install_result
     }
 
-    async fn uninstall(&self, id: &str, _accept_agreements: bool, _silent: bool) -> bool {
+    async fn uninstall(
+        &self,
+        id: &str,
+        _options: WingetOptions,
+        _on_output: Option<LineCallback<'_>>,
+        _on_error: Option<LineCallback<'_>>,
+    ) -> bool {
         let _ = id;
         self.uninstall_result
     }
 
-    async fn upgrade(&self, id: &str, _accept_agreements: bool, _silent: bool) -> bool {
+    async fn upgrade(
+        &self,
+        id: &str,
+        _options: WingetOptions,
+        _on_output: Option<LineCallback<'_>>,
+        _on_error: Option<LineCallback<'_>>,
+    ) -> bool {
         let _ = id;
         *self.upgrade_calls.lock().unwrap() += 1;
         self.upgrade_result

@@ -9,6 +9,9 @@ pub struct DiffResult {
     pub to_skip: Vec<PackageSpec>,
     pub to_remove: Vec<PackageSpec>,
     pub to_adopt: Vec<PackageSpec>,
+    /// Packages installed on the system but not tracked in state. Informational
+    /// only (not an action): run with `-a`/`--adopt` to adopt them.
+    pub to_untracked: Vec<PackageSpec>,
     pub buckets_to_add: Vec<ScoopBucket>,
     pub buckets_to_remove: Vec<ScoopBucket>,
     pub config_files_to_create: Vec<ConfigFileEntry>,

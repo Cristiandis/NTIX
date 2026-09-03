@@ -408,6 +408,56 @@ async fn compute_diff_unpinned_pkg_in_state_not_installed_to_install() {
 }
 
 #[tokio::test]
+async fn compute_diff_unpinned_pkg_upgradable_but_not_installed_to_install() {
+    let mut mock = MockWingetManager::new();
+    mock.upgradable_packages
+        .insert("upgradable-pkg".to_string(), UpgradeInfo::new("1.0", "2.0"));
+    let installed = InstalledPackages::default();
+
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("upgradable-pkg", None)];
+    let mut state = State::default();
+    state
+        .winget
+        .insert("upgradable-pkg".to_string(), "1.0".to_string());
+
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        Some(&mock),
+        None,
+        true,
+        true,
+        false,
+    )
+    .await;
+
+    assert_eq!(diff.to_install.len(), 1);
+    assert_eq!(diff.to_install[0].id, "upgradable-pkg");
+    assert!(diff.to_upgrade.is_empty());
+}
+
+#[tokio::test]
+async fn compute_diff_unpinned_pkg_id_case_insensitive_match_to_skip() {
+    let mut mock = MockWingetManager::new();
+    mock.installed_packages
+        .insert("foobar".to_string(), "1.0".to_string());
+
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("FooBar", None)];
+    let mut state = State::default();
+    state.winget.insert("foobar".to_string(), "1.0".to_string());
+
+    let diff = diff_with(&config, &state, None, Some(&mock), None, true, true, false).await;
+
+    assert_eq!(diff.to_skip.len(), 1);
+    assert_eq!(diff.to_skip[0].id, "FooBar");
+    assert!(diff.to_install.is_empty());
+    assert!(diff.to_upgrade.is_empty());
+}
+
+#[tokio::test]
 async fn compute_diff_pinned_version_mismatch_to_install() {
     let mut mock = MockWingetManager::new();
     mock.installed_packages
@@ -825,7 +875,7 @@ async fn compute_diff_adopt_mode_installed_not_in_state_to_adopt() {
 }
 
 #[tokio::test]
-async fn compute_diff_no_adopt_mode_installed_not_in_state_to_skip() {
+async fn compute_diff_no_adopt_mode_installed_not_in_state_is_untracked() {
     let mut mock = MockWingetManager::new();
     mock.installed_packages
         .insert("manual-pkg".to_string(), "3.0".to_string());
@@ -851,9 +901,10 @@ async fn compute_diff_no_adopt_mode_installed_not_in_state_to_skip() {
     )
     .await;
 
-    assert_eq!(diff.to_skip.len(), 1);
-    assert_eq!(diff.to_skip[0].id, "manual-pkg");
+    assert!(diff.to_skip.is_empty(), "not actually managed");
     assert!(diff.to_adopt.is_empty());
+    assert_eq!(diff.to_untracked.len(), 1);
+    assert_eq!(diff.to_untracked[0].id, "manual-pkg");
 }
 
 #[tokio::test]

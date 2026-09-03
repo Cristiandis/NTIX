@@ -39,7 +39,7 @@ fn load_from_string_valid_config_returns_ntix_config() {
     let path = placeholder_config_path(&dir);
     let lua = r#"
         options = {
-            winget = { enable = true, acceptAgreements = true, interactive = false },
+            winget = { enable = true, acceptAgreements = true, silent = true, disableInteractivity = true },
             chocolatey = { enable = true, yes = true },
             scoop = { enable = true, buckets = { "main", "extras" } }
         }
@@ -62,7 +62,7 @@ fn load_from_string_valid_config_returns_ntix_config() {
 }
 
 #[test]
-fn load_from_string_missing_interactive_field_defaults_to_false() {
+fn load_from_string_missing_winget_flags_default_to_false() {
     let dir = temp_dir();
     let path = placeholder_config_path(&dir);
     let lua = r#"
@@ -81,7 +81,8 @@ fn load_from_string_missing_interactive_field_defaults_to_false() {
 
     let config = config_loader::load_from_string(lua, path).unwrap();
     assert!(config.options.winget.enable);
-    assert!(!config.options.winget.interactive);
+    assert!(!config.options.winget.silent);
+    assert!(!config.options.winget.disable_interactivity);
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -193,6 +194,51 @@ fn load_from_string_with_import_single_file_merges_options_and_packages() {
 
     assert_eq!(config.choco_packages.len(), 1);
     assert_eq!(config.choco_packages[0].id, "git");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn load_from_string_with_import_and_inline_tables_merges_both() {
+    let dir = temp_dir();
+    let base_config = r#"
+        return {
+            options = {
+                winget = { acceptAgreements = true }
+            },
+            pkgs = {
+                winget = { "Microsoft.VisualStudioCode" }
+            }
+        }
+    "#;
+    fs::write(dir.join("base.lua"), base_config).unwrap();
+
+    let main_config = r#"
+        import("base.lua")
+        return {
+            options = {
+                winget = { enable = true }
+            },
+            pkgs = {
+                winget = { "Git.Git" }
+            }
+        }
+    "#;
+    let main_path = dir.join("main.lua");
+    fs::write(&main_path, "return {}").unwrap();
+
+    let config = config_loader::load_from_string(main_config, main_path).unwrap();
+
+    assert!(config.options.winget.enable);
+    assert!(config.options.winget.accept_agreement);
+
+    let ids: Vec<&str> = config
+        .winget_packages
+        .iter()
+        .map(|p| p.id.as_str())
+        .collect();
+    assert_eq!(ids.len(), 2);
+    assert!(ids.contains(&"Microsoft.VisualStudioCode"));
+    assert!(ids.contains(&"Git.Git"));
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -351,7 +397,7 @@ fn load_from_string_with_import_deep_merge_options_preserves_nested_keys() {
                 winget = {
                     enable = true,
                     acceptAgreements = true,
-                    interactive = false
+                    disableInteractivity = false
                 },
                 scoop = {
                     enable = true,
@@ -366,7 +412,7 @@ fn load_from_string_with_import_deep_merge_options_preserves_nested_keys() {
     let main_config = r#"
         import("base.lua")
         -- Modify global options table
-        options.winget.interactive = true
+        options.winget.disableInteractivity = true
         options.scoop.buckets = { "main", "extras" }
         return { options = options, pkgs = pkgs }
     "#;
@@ -376,7 +422,7 @@ fn load_from_string_with_import_deep_merge_options_preserves_nested_keys() {
     let config = config_loader::load_from_string(main_config, main_path).unwrap();
     assert!(config.options.winget.enable);
     assert!(config.options.winget.accept_agreement);
-    assert!(config.options.winget.interactive);
+    assert!(config.options.winget.disable_interactivity);
     assert!(config.options.scoop.enable);
     let bucket_names: Vec<&str> = config
         .options
@@ -527,22 +573,15 @@ fn load_from_string_import_invalid_arg_throws() {
 }
 
 #[test]
-fn ensure_default_config_null_path_creates_file() {
+fn ensure_default_config_explicit_missing_path_not_created() {
     let dir = temp_dir();
     let config_path = dir.join("config.lua");
 
     let result = ensure_default_config(Some(config_path.clone()));
-    assert!(
-        result
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .ends_with("config.lua")
-    );
-    assert!(result.is_file());
-    let content = fs::read_to_string(&result).unwrap();
-    assert!(content.contains("options"));
-    assert!(content.contains("pkgs"));
+    assert_eq!(result, config_path);
+    // An explicit, non-existent path is returned untouched and is NOT
+    // auto-created; loading it later should report "config not found".
+    assert!(!config_path.exists());
     fs::remove_dir_all(&dir).unwrap();
 }
 

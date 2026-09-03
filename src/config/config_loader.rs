@@ -38,16 +38,20 @@ return {
 "#;
 
 pub fn ensure_default_config(config_path: Option<PathBuf>) -> PathBuf {
-    let path = config_path.unwrap_or_else(|| DEFAULT_CONFIG_PATH.clone());
-
-    if !path.is_file() {
-        if let Some(dir) = path.parent() {
-            fs::create_dir_all(dir).expect("Error creating default config dir.");
+    match config_path {
+        Some(path) => path,
+        None => {
+            let default = DEFAULT_CONFIG_PATH.clone();
+            if !default.is_file() {
+                if let Some(dir) = default.parent() {
+                    fs::create_dir_all(dir).expect("Error creating default config dir.");
+                }
+                fs::write(&default, DEFAULT_CONFIG_CONTENT)
+                    .expect("Error writing default config file");
+            }
+            default
         }
-        fs::write(&path, DEFAULT_CONFIG_CONTENT).expect("Error writing default config file");
     }
-
-    path
 }
 
 pub fn load(config_path: PathBuf) -> Result<NTIXConfig, Box<dyn Error>> {
@@ -116,12 +120,21 @@ pub fn load_from_string(
         .next()
         .ok_or_else(|| -> Box<dyn Error> { "Lua script returned no value".into() })?;
 
-    // Fold the root's own `configFiles` (if any) into the global table so that
-    // entries declared both at the top level and via imports are preserved, then
-    // expose the combined table on the root result before parsing.
     if let Value::Table(root_table) = &first_result {
-        if let Ok(Value::Table(root_cf)) = root_table.get::<Value>("configFiles") {
-            deep_merge_table(&global_config_files, &root_cf)?;
+        let had_options = root_table.contains_key("options")?;
+        let had_pkgs = root_table.contains_key("pkgs")?;
+        merge_returned_table(
+            &state,
+            &global_options,
+            &global_pkgs,
+            &global_config_files,
+            root_table,
+        )?;
+        if had_options {
+            root_table.set("options", &global_options)?;
+        }
+        if had_pkgs {
+            root_table.set("pkgs", &global_pkgs)?;
         }
         root_table.set("configFiles", &global_config_files)?;
     }
@@ -483,7 +496,11 @@ fn read_options(options: &Table) -> mlua::Result<NTIXOptions> {
                 &t.get::<Value>("acceptAgreements")?,
                 winget.accept_agreement,
             ),
-            interactive: read_bool(&t.get::<Value>("interactive")?, winget.interactive),
+            silent: read_bool(&t.get::<Value>("silent")?, winget.silent),
+            disable_interactivity: read_bool(
+                &t.get::<Value>("disableInteractivity")?,
+                winget.disable_interactivity,
+            ),
         };
     }
 

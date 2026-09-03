@@ -97,6 +97,10 @@ pub async fn apply_diff(
         update_state(state, pkg, true);
     }
 
+    if !diff.to_adopt.is_empty() {
+        save_state_or_warn(state, state_path, on_error);
+    }
+
     if apply_config {
         apply_config_files(
             state,
@@ -106,10 +110,25 @@ pub async fn apply_diff(
             on_output,
             on_error,
         );
-        let _ = state_service::save_state(state, Some(state_path), DEFAULT_MAX_RETRIES);
+        save_state_or_warn(state, state_path, on_error);
     }
 
     all_ok
+}
+
+fn save_state_or_warn(
+    state: &State,
+    state_path: &Path,
+    on_error: Option<LineCallback<'_>>,
+) -> bool {
+    let ok = match state_service::save_state(state, Some(state_path), DEFAULT_MAX_RETRIES) {
+        Ok(true) => true,
+        Ok(false) | Err(_) => false,
+    };
+    if !ok && let Some(cb) = on_error {
+        cb("Failed to save state to disk. Changes may not persist across runs.");
+    }
+    ok
 }
 
 /// Copies managed config files from their resolved sources to their destinations
@@ -207,7 +226,7 @@ async fn apply_buckets(
             state
                 .scoop_buckets
                 .insert(bucket.name.clone(), bucket.url.clone());
-            let _ = state_service::save_state(state, Some(state_path), DEFAULT_MAX_RETRIES);
+            save_state_or_warn(state, state_path, on_error);
         }
     }
 
@@ -224,7 +243,7 @@ async fn apply_buckets(
             all_ok = false;
         } else {
             state.scoop_buckets.remove(&bucket.name);
-            let _ = state_service::save_state(state, Some(state_path), DEFAULT_MAX_RETRIES);
+            save_state_or_warn(state, state_path, on_error);
         }
     }
 
@@ -269,11 +288,7 @@ async fn run_operation(
         "winget" => match operation {
             Operation::Upgrade => {
                 manager
-                    .upgrade(
-                        &pkg.id,
-                        options.winget.accept_agreement,
-                        !options.winget.interactive,
-                    )
+                    .upgrade(&pkg.id, options.winget, on_output, on_error)
                     .await
             }
             Operation::Install => {
@@ -281,8 +296,9 @@ async fn run_operation(
                     .install(
                         &pkg.id,
                         pkg.version.as_deref(),
-                        options.winget.accept_agreement,
-                        !options.winget.interactive,
+                        options.winget,
+                        on_output,
+                        on_error,
                     )
                     .await
             }
@@ -328,7 +344,7 @@ async fn run_operation(
 
     if success {
         update_state(state, pkg, installs);
-        let _ = state_service::save_state(state, Some(state_path), DEFAULT_MAX_RETRIES);
+        save_state_or_warn(state, state_path, on_error);
         true
     } else {
         if let Some(cb) = on_error {

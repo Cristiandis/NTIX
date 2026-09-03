@@ -10,7 +10,7 @@ pub struct State {
     pub chocolatey: HashMap<String, String>,
     pub scoop: HashMap<String, String>,
     pub scoop_buckets: HashMap<String, Option<String>>,
-    /// Managed config files: dest (absolute path) -> sha256 of the last applied source content.
+    #[serde(default)]
     pub config_files: HashMap<String, String>,
 }
 

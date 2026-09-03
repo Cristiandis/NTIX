@@ -94,6 +94,7 @@ pub async fn apply(
 
     if no_gc {
         diff.to_remove.clear();
+        diff.buckets_to_remove.clear();
     }
 
     if dry_run {
@@ -108,6 +109,7 @@ pub async fn apply(
     let mut state = state_service::load_state(None).unwrap_or_default();
     let _lock = LockFile::new(None, true)?;
     let state_path = state_service::get_state_path()?;
+
     let success = execution_engine::apply_diff(
         &diff,
         &config.options,
@@ -195,6 +197,7 @@ enum Section {
     ToInstall,
     ToUpgrade,
     ToAdopt,
+    ToUntracked,
     ToSkip,
     BucketsToAdd,
     BucketsToRemove,
@@ -213,6 +216,7 @@ fn print_diff_tree(
         (Section::ToInstall, !diff.to_install.is_empty()),
         (Section::ToUpgrade, !diff.to_upgrade.is_empty()),
         (Section::ToAdopt, !diff.to_adopt.is_empty()),
+        (Section::ToUntracked, !diff.to_untracked.is_empty()),
         (Section::ToSkip, !diff.to_skip.is_empty()),
         (Section::BucketsToAdd, !diff.buckets_to_add.is_empty()),
         (Section::BucketsToRemove, !diff.buckets_to_remove.is_empty()),
@@ -298,6 +302,23 @@ fn render_section(config: &NTIXConfig, diff: &DiffResult, section: Section, is_l
                     + &format!("\u{2713} Already managed ({})", diff.to_skip.len())
                         .dimmed()
                         .to_string()
+            );
+        }
+        Section::ToUntracked => {
+            println!(
+                "{}",
+                tree_branch("", is_last)
+                    + &format!(
+                        "\u{2713} Installed, not managed ({})",
+                        diff.to_untracked.len()
+                    )
+                    .dimmed()
+                    .to_string()
+            );
+            print_grouped(
+                &diff.to_untracked,
+                VersionStyle::Paren,
+                &tree_continuation("", is_last),
             );
         }
         Section::BucketsToAdd => {

@@ -212,6 +212,12 @@ async fn compute_bucket_diff(
     }
 }
 
+fn ci_lookup<'a, V>(map: &'a HashMap<String, V>, key: &str) -> Option<&'a V> {
+    map.iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(key))
+        .map(|(_, v)| v)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn classify_packages(
     result: &mut DiffResult,
@@ -233,19 +239,21 @@ fn classify_packages(
             version: pkg.version.clone(),
             source: source_name.to_string(),
         };
-        let is_installed = installed_dict.contains_key(&pkg.id);
-        let in_state = state_dict.contains_key(&pkg.id);
+        let is_installed = ci_lookup(installed_dict, &pkg.id).is_some();
+        let in_state = ci_lookup(state_dict, &pkg.id).is_some();
 
         if let Some(pkg_version) = &pkg.version {
             if in_state {
-                let state_version = &state_dict[&pkg.id];
+                let state_version =
+                    ci_lookup(state_dict, &pkg.id).expect("in_state implies a state entry");
                 if !state_version.eq_ignore_ascii_case(pkg_version) {
                     result.to_install.push(spec);
                 } else {
                     result.to_skip.push(spec);
                 }
             } else if is_installed && adopt_mode {
-                let installed_version = &installed_dict[&pkg.id];
+                let installed_version = ci_lookup(installed_dict, &pkg.id)
+                    .expect("is_installed and adopt_mode imply an installed entry");
                 if installed_version.eq_ignore_ascii_case(pkg_version) {
                     spec.version = Some(installed_version.clone());
                     result.to_adopt.push(spec);
@@ -255,7 +263,7 @@ fn classify_packages(
             } else {
                 result.to_install.push(spec);
             }
-        } else if let Some(upgrade) = upgradable.get(&pkg.id) {
+        } else if is_installed && let Some(upgrade) = ci_lookup(upgradable, &pkg.id) {
             spec.version = Some(upgrade.available_version.clone());
             result.to_upgrade.push(spec);
         } else if !is_installed && !in_state {
@@ -265,7 +273,9 @@ fn classify_packages(
         } else if is_installed && adopt_mode {
             result.to_adopt.push(spec);
         } else if is_installed {
-            result.to_skip.push(spec);
+            // Installed on the system but not tracked: report as unmanaged
+            // rather than counting it as "already managed".
+            result.to_untracked.push(spec);
         } else if in_state {
             result.to_install.push(spec);
         }

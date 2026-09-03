@@ -26,7 +26,8 @@ fn winget_opts() -> NTIXOptions {
         WingetOptions {
             enable: true,
             accept_agreement: true,
-            interactive: false,
+            silent: false,
+            disable_interactivity: true,
         },
         ChocoOptions::default(),
         ScoopOptions::default(),
@@ -225,7 +226,8 @@ async fn apply_diff_async_mixed_sources_works_correctly() {
         WingetOptions {
             enable: true,
             accept_agreement: true,
-            interactive: false,
+            silent: false,
+            disable_interactivity: true,
         },
         ChocoOptions {
             enable: true,
@@ -653,7 +655,8 @@ async fn apply_diff_async_config_validation_with_warnings_still_processes() {
         WingetOptions {
             enable: true,
             accept_agreement: true,
-            interactive: false,
+            silent: false,
+            disable_interactivity: true,
         },
         ChocoOptions {
             enable: false,

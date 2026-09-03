@@ -148,8 +148,10 @@ pub fn build_winget_uninstall(
     if opts.accept_agreement {
         cmd += " --accept-source-agreements";
     };
-    if !opts.interactive {
+    if opts.silent {
         cmd += " --silent";
+    } else if opts.disable_interactivity {
+        cmd += " --disable-interactivity";
     };
     Ok(cmd)
 }
