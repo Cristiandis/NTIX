@@ -16,7 +16,6 @@ pub struct DiffResult {
     pub buckets_to_remove: Vec<ScoopBucket>,
     pub config_files_to_create: Vec<ConfigFileEntry>,
     pub config_files_to_update: Vec<ConfigFileEntry>,
-    pub config_files_to_skip: Vec<ConfigFileEntry>,
     /// Dest paths still tracked in state but no longer present in the config.
     pub config_files_no_longer_managed: Vec<String>,
     pub warnings: Vec<String>,

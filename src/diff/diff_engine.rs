@@ -13,9 +13,8 @@ use crate::{
         package_entry::PackageEntry, package_spec::PackageSpec, state::State,
     },
     package_manager::{
-        command_builder, command_runner::CommandRunner, manager_presence::ManagerPresence,
-        package_manager_detector, process_command_runner::ProcessCommandRunner,
-        winget_manager_trait::WingetManagerTrait,
+        command_builder, command_runner::CommandRunner, package_manager_detector,
+        process_command_runner::ProcessCommandRunner, winget_manager_trait::WingetManagerTrait,
     },
 };
 
@@ -24,7 +23,8 @@ pub async fn compute_diff(
     config: &NTIXConfig,
     state: &State,
     winget_manager: Option<&dyn WingetManagerTrait>,
-    presence: Option<&dyn ManagerPresence>,
+    choco_installed: Option<bool>,
+    scoop_installed: Option<bool>,
     runner: Option<&dyn CommandRunner>,
     adopt_mode: bool,
     upgrade_mode: bool,
@@ -37,7 +37,8 @@ pub async fn compute_diff(
         &config.options,
         config,
         winget_manager,
-        presence,
+        choco_installed,
+        scoop_installed,
     )
     .await;
 
@@ -411,9 +412,7 @@ pub fn compute_config_files_diff(result: &mut DiffResult, config: &NTIXConfig, s
             Ok(src_bytes) => {
                 let src_hash = crate::hash::sha256_hex(&src_bytes);
                 match state.config_files.get(&dest_str) {
-                    Some(stored) if *stored == src_hash => {
-                        result.config_files_to_skip.push(entry.clone());
-                    }
+                    Some(stored) if *stored == src_hash => {}
                     Some(_) => {
                         result.config_files_to_update.push(entry.clone());
                     }

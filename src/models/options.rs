@@ -2,10 +2,7 @@
 pub struct WingetOptions {
     pub enable: bool,
     pub accept_agreement: bool,
-    /// Pass `--silent` to winget (fully quiet installs; suppresses output).
     pub silent: bool,
-    /// Pass `--disable-interactivity` to winget (streams output but never
-    /// blocks on prompts). Ignored when `silent` is set.
     pub disable_interactivity: bool,
 }
 

@@ -7,46 +7,7 @@ use async_trait::async_trait;
 use ntix_rs::models::installed_packages::UpgradeInfo;
 use ntix_rs::models::options::WingetOptions;
 use ntix_rs::package_manager::command_runner::{CommandRunner, LineCallback};
-use ntix_rs::package_manager::manager_presence::ManagerPresence;
 use ntix_rs::package_manager::winget_manager_trait::WingetManagerTrait;
-
-/// Hand-rolled mock of `ManagerPresence`.
-pub struct MockManagerPresence {
-    pub chocolatey_installed: bool,
-    pub scoop_installed: bool,
-}
-
-impl MockManagerPresence {
-    pub fn new() -> Self {
-        Self {
-            chocolatey_installed: true,
-            scoop_installed: true,
-        }
-    }
-
-    pub fn with_choco(installed: bool) -> Self {
-        Self {
-            chocolatey_installed: installed,
-            scoop_installed: true,
-        }
-    }
-}
-
-impl Default for MockManagerPresence {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ManagerPresence for MockManagerPresence {
-    fn is_chocolatey_installed(&self) -> bool {
-        self.chocolatey_installed
-    }
-
-    fn is_scoop_installed(&self) -> bool {
-        self.scoop_installed
-    }
-}
 
 /// Hand-rolled mock of `CommandRunner`.
 pub struct MockCommandRunner {

@@ -4,16 +4,14 @@ use std::process::Stdio;
 
 use anyhow::bail;
 use async_trait::async_trait;
-use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 use crate::models::installed_packages::UpgradeInfo;
 use crate::models::options::WingetOptions;
-use crate::package_manager::command_runner::LineCallback;
+use crate::package_manager::command_runner::{CREATE_NO_WINDOW, LineCallback};
+use crate::package_manager::process_command_runner::stream_lines;
 use crate::package_manager::table_parser::parse_table;
 use crate::package_manager::winget_manager_trait::WingetManagerTrait;
-
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 fn winget_flags(args: &mut Vec<&str>, options: WingetOptions) {
     if options.silent {
@@ -47,19 +45,14 @@ async fn run_streaming(
     }
 }
 
-async fn stream_lines<R>(reader: Option<R>, callback: Option<LineCallback<'_>>)
-where
-    R: tokio::io::AsyncRead + Unpin,
-{
-    let Some(reader) = reader else {
-        return;
-    };
-    let mut lines = BufReader::new(reader).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
-        if let Some(cb) = callback {
-            cb(&line);
-        }
-    }
+async fn run_winget(
+    args: Vec<&str>,
+    on_output: Option<LineCallback<'_>>,
+    on_error: Option<LineCallback<'_>>,
+) -> bool {
+    let mut cmd = Command::new("winget");
+    cmd.args(&args).creation_flags(CREATE_NO_WINDOW);
+    run_streaming(cmd, on_output, on_error).await
 }
 
 struct WingetPackageEntry {
@@ -182,9 +175,7 @@ impl WingetManagerTrait for WingetManager {
             args.push("--accept-package-agreements");
         }
         winget_flags(&mut args, options);
-        let mut cmd = Command::new("winget");
-        cmd.args(&args).creation_flags(CREATE_NO_WINDOW);
-        run_streaming(cmd, on_output, on_error).await
+        run_winget(args, on_output, on_error).await
     }
 
     async fn uninstall(
@@ -200,9 +191,7 @@ impl WingetManagerTrait for WingetManager {
             args.push("--accept-package-agreements");
         }
         winget_flags(&mut args, options);
-        let mut cmd = Command::new("winget");
-        cmd.args(&args).creation_flags(CREATE_NO_WINDOW);
-        run_streaming(cmd, on_output, on_error).await
+        run_winget(args, on_output, on_error).await
     }
 
     async fn upgrade(
@@ -218,9 +207,7 @@ impl WingetManagerTrait for WingetManager {
             args.push("--accept-package-agreements");
         }
         winget_flags(&mut args, options);
-        let mut cmd = Command::new("winget");
-        cmd.args(&args).creation_flags(CREATE_NO_WINDOW);
-        run_streaming(cmd, on_output, on_error).await
+        run_winget(args, on_output, on_error).await
     }
 
     async fn package_exists(

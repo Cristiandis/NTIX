@@ -33,7 +33,13 @@ return {
     -- Don't declare the same package under multiple managers.
     -- This causes conflicts during install/uninstall
     options = {},
-    pkgs = {}
+    pkgs = {},
+    -- Optional: manage arbitrary config files.
+    -- NOTE: Lua interprets \ as an escape sequence, so use "/" as the path
+    -- separator (not "\"). Both forms are understood at runtime.
+    -- configFiles = {
+    --   ["C:/Users/you/AppData/Roaming/app/settings.toml"] = "configs/settings.toml",
+    -- }
 }
 "#;
 
@@ -453,7 +459,7 @@ fn read_config_files(table: &Table, config_path: &Path) -> mlua::Result<Vec<Conf
         let dest = PathBuf::from(&dest_str);
         if !dest.is_absolute() {
             return Err(mlua::Error::RuntimeError(format!(
-                "Config error: configFiles destination must be an absolute path: {}",
+                "Config error: configFiles destination must be an absolute path (use '/' not '\\'): {}",
                 dest_str
             )));
         }
@@ -462,7 +468,7 @@ fn read_config_files(table: &Table, config_path: &Path) -> mlua::Result<Vec<Conf
             Value::String(s) => s.to_str()?.to_string(),
             _ => {
                 return Err(mlua::Error::RuntimeError(format!(
-                    "Config error: configFiles entry for '{}' must be a source path string",
+                    "Config error: configFiles entry for '{}' must be a source path string (use '/' not '\\')",
                     dest_str
                 )));
             }

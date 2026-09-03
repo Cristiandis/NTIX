@@ -4,7 +4,6 @@ use ntix_rs::models::package_entry::PackageEntry;
 use ntix_rs::package_manager::package_manager_detector;
 
 mod common;
-use common::MockManagerPresence;
 
 fn opts(choco_enable: bool, scoop_enable: bool) -> NTIXOptions {
     NTIXOptions {
@@ -22,15 +21,14 @@ fn opts(choco_enable: bool, scoop_enable: bool) -> NTIXOptions {
 
 #[test]
 fn validate_managers_chocolatey_enabled_not_installed_warns_and_continues() {
-    let presence = MockManagerPresence::with_choco(false);
-
     let options = opts(true, false);
     let config = NTIXConfig {
         options: options.clone(),
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers(&options, &config, Some(&presence));
+    let result =
+        package_manager_detector::validate_managers(&options, &config, Some(false), Some(true));
     assert!(!result.choco_installed);
     assert!(
         result
@@ -43,31 +41,28 @@ fn validate_managers_chocolatey_enabled_not_installed_warns_and_continues() {
 
 #[test]
 fn validate_managers_chocolatey_enabled_installed_returns_valid() {
-    let presence = MockManagerPresence::new();
-
     let options = opts(true, false);
     let config = NTIXConfig {
         options: options.clone(),
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers(&options, &config, Some(&presence));
+    let result =
+        package_manager_detector::validate_managers(&options, &config, Some(true), Some(true));
     assert!(result.choco_installed);
     assert!(result.warnings.is_empty());
 }
 
 #[test]
 fn validate_managers_scoop_enabled_not_installed_warns_and_continues() {
-    let mut presence = MockManagerPresence::new();
-    presence.scoop_installed = false;
-
     let options = opts(false, true);
     let config = NTIXConfig {
         options: options.clone(),
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers(&options, &config, Some(&presence));
+    let result =
+        package_manager_detector::validate_managers(&options, &config, Some(true), Some(false));
     assert!(!result.scoop_installed);
     assert!(
         result
@@ -79,15 +74,14 @@ fn validate_managers_scoop_enabled_not_installed_warns_and_continues() {
 
 #[test]
 fn validate_managers_scoop_enabled_installed_returns_valid() {
-    let presence = MockManagerPresence::new();
-
     let options = opts(false, true);
     let config = NTIXConfig {
         options: options.clone(),
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers(&options, &config, Some(&presence));
+    let result =
+        package_manager_detector::validate_managers(&options, &config, Some(true), Some(true));
     assert!(result.scoop_installed);
     assert!(result.warnings.is_empty());
 }
@@ -104,7 +98,7 @@ fn validate_managers_chocolatey_packages_not_enabled_returns_warning() {
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers(&options, &config, None);
+    let result = package_manager_detector::validate_managers(&options, &config, None, None);
     assert!(result.warnings.iter().any(|w| {
         w.contains("[warn] Chocolatey packages declared but chocolatey not enabled in options")
     }));
@@ -122,7 +116,7 @@ fn validate_managers_scoop_packages_not_enabled_returns_warning() {
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers(&options, &config, None);
+    let result = package_manager_detector::validate_managers(&options, &config, None, None);
     assert!(
         result
             .warnings
@@ -139,7 +133,7 @@ fn validate_managers_all_disabled_no_packages_returns_success() {
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers(&options, &config, None);
+    let result = package_manager_detector::validate_managers(&options, &config, None, None);
     assert!(result.warnings.is_empty());
 }
 
@@ -151,5 +145,5 @@ fn validate_managers_null_options_handles_gracefully() {
         ..Default::default()
     };
 
-    package_manager_detector::validate_managers(&options, &config, None);
+    package_manager_detector::validate_managers(&options, &config, None, None);
 }

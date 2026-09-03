@@ -50,7 +50,7 @@ async fn resolve_and_compute(
     spinner.set_message(config_file_name.clone().bold().to_string());
 
     let mut diff: DiffResult = diff::diff_engine::compute_diff(
-        &config, &state, None, None, None, adopt, upgrade, true, None, &spinner,
+        &config, &state, None, None, None, None, adopt, upgrade, true, None, &spinner,
     )
     .await?;
     spinner.finish_and_clear();
@@ -118,6 +118,7 @@ pub async fn apply(
         stop_on_failure,
         None,
         None,
+        None,
         Some(&config),
         apply_config,
         Some(&|line: &str| println!("{line}")),
@@ -162,13 +163,22 @@ pub fn state_cmd() -> Result<i32, Box<dyn std::error::Error>> {
         println!("  {}", "(empty)".dimmed());
     } else {
         for (id, ver) in &state.winget {
-            println!("  {}", format!("winget: {id} ({ver})").cyan());
+            println!(
+                "  {}",
+                source_color("winget", &format!("winget: {id} ({ver})"))
+            );
         }
         for (id, ver) in &state.chocolatey {
-            println!("  {}", format!("chocolatey: {id} ({ver})").magenta());
+            println!(
+                "  {}",
+                source_color("chocolatey", &format!("chocolatey: {id} ({ver})"))
+            );
         }
         for (id, ver) in &state.scoop {
-            println!("  {}", format!("scoop: {id} ({ver})").blue());
+            println!(
+                "  {}",
+                source_color("scoop", &format!("scoop: {id} ({ver})"))
+            );
         }
     }
 
@@ -239,7 +249,16 @@ fn print_diff_tree(
         }
     }
 
-    if diff.is_empty() {
+    let has_action = !diff.to_install.is_empty()
+        || !diff.to_upgrade.is_empty()
+        || !diff.to_adopt.is_empty()
+        || !diff.buckets_to_add.is_empty()
+        || !diff.buckets_to_remove.is_empty()
+        || !diff.to_remove.is_empty()
+        || !diff.config_files_to_create.is_empty()
+        || !diff.config_files_to_update.is_empty()
+        || !diff.config_files_no_longer_managed.is_empty();
+    if !has_action {
         println!("{}", "Nothing to do.".dimmed());
     }
 }

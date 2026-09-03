@@ -7,7 +7,6 @@ use crate::models::{
 use crate::package_manager::{
     command_builder,
     command_runner::{CommandRunner, LineCallback},
-    manager_presence::ManagerPresence,
     package_manager_detector,
     process_command_runner::ProcessCommandRunner,
     winget_manager::WingetManager,
@@ -42,7 +41,8 @@ pub async fn apply_diff(
     state_path: &Path,
     stop_on_failure: bool,
     winget_manager: Option<&dyn WingetManagerTrait>,
-    presence: Option<&dyn ManagerPresence>,
+    choco_installed: Option<bool>,
+    scoop_installed: Option<bool>,
     config: Option<&NTIXConfig>,
     apply_config: bool,
     on_output: Option<LineCallback<'_>>,
@@ -52,7 +52,12 @@ pub async fn apply_diff(
     let cmd: &dyn CommandRunner = runner.unwrap_or(&ProcessCommandRunner);
 
     if let Some(config) = config {
-        let validation = package_manager_detector::validate_managers(options, config, presence);
+        let validation = package_manager_detector::validate_managers(
+            options,
+            config,
+            choco_installed,
+            scoop_installed,
+        );
         for w in &validation.warnings {
             if !diff.warnings.contains(w)
                 && let Some(cb) = on_error

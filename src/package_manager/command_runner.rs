@@ -2,6 +2,8 @@ use async_trait::async_trait;
 
 pub type LineCallback<'a> = &'a (dyn Fn(&str) + Sync);
 
+pub(crate) const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[async_trait]
 pub trait CommandRunner {
     async fn run(

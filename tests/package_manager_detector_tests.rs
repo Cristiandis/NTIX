@@ -222,7 +222,8 @@ async fn validate_managers_async_scoop_disabled_returns_valid() {
         ..Default::default()
     };
 
-    package_manager_detector::validate_managers_async(&options, &config, Some(&mock), None).await;
+    package_manager_detector::validate_managers_async(&options, &config, Some(&mock), None, None)
+        .await;
 }
 
 #[tokio::test]
@@ -234,7 +235,8 @@ async fn validate_managers_async_choco_disabled_returns_valid() {
         ..Default::default()
     };
 
-    package_manager_detector::validate_managers_async(&options, &config, Some(&mock), None).await;
+    package_manager_detector::validate_managers_async(&options, &config, Some(&mock), None, None)
+        .await;
 }
 
 #[tokio::test]
@@ -243,7 +245,8 @@ async fn validate_managers_async_null_options_defaults() {
     let config = NTIXConfig::default();
     let options = config.options.clone();
 
-    package_manager_detector::validate_managers_async(&options, &config, Some(&mock), None).await;
+    package_manager_detector::validate_managers_async(&options, &config, Some(&mock), None, None)
+        .await;
 }
 
 #[test]
@@ -254,7 +257,7 @@ fn validate_managers_scoop_disabled_returns_valid() {
         ..Default::default()
     };
 
-    package_manager_detector::validate_managers(&options, &config, None);
+    package_manager_detector::validate_managers(&options, &config, None, None);
 }
 
 #[test]
@@ -265,7 +268,7 @@ fn validate_managers_choco_disabled_returns_valid() {
         ..Default::default()
     };
 
-    package_manager_detector::validate_managers(&options, &config, None);
+    package_manager_detector::validate_managers(&options, &config, None, None);
 }
 
 #[test]
@@ -280,7 +283,7 @@ fn validate_managers_scoop_packages_declared_not_enabled_generates_warning() {
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers(&options, &config, None);
+    let result = package_manager_detector::validate_managers(&options, &config, None, None);
     assert!(
         result
             .warnings
@@ -301,7 +304,7 @@ fn validate_managers_choco_packages_declared_not_enabled_generates_warning() {
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers(&options, &config, None);
+    let result = package_manager_detector::validate_managers(&options, &config, None, None);
     assert!(
         result
             .warnings
@@ -318,7 +321,7 @@ fn validate_managers_sync_with_options_returns_valid() {
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers(&options, &config, None);
+    let result = package_manager_detector::validate_managers(&options, &config, None, None);
     assert!(result.warnings.is_empty());
 }
 

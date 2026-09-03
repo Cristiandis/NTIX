@@ -11,7 +11,7 @@ use ntix_rs::models::package_spec::PackageSpec;
 use ntix_rs::models::state::State;
 
 mod common;
-use common::{MockCommandRunner, MockManagerPresence, MockWingetManager};
+use common::{MockCommandRunner, MockWingetManager};
 
 fn options(winget: WingetOptions, choco: ChocoOptions, scoop: ScoopOptions) -> NTIXOptions {
     NTIXOptions {
@@ -91,7 +91,8 @@ async fn apply(
         stop_on_failure,
         winget_manager
             .map(|m| m as &dyn ntix_rs::package_manager::winget_manager_trait::WingetManagerTrait),
-        Some(&MockManagerPresence::new()),
+        Some(true),
+        Some(true),
         config,
         false,
         None,
@@ -500,7 +501,6 @@ async fn apply_diff_async_config_missing_choco_warns_and_continues() {
     let captured = warnings.clone();
 
     // Choco enabled but not installed -> warning, processing continues.
-    let presence = MockManagerPresence::with_choco(false);
     let result = apply_diff(
         &diff,
         &options,
@@ -508,7 +508,8 @@ async fn apply_diff_async_config_missing_choco_warns_and_continues() {
         &path,
         false,
         Some(&mock),
-        Some(&presence),
+        Some(false),
+        Some(true),
         Some(&config),
         false,
         None,
@@ -616,8 +617,6 @@ async fn apply_diff_async_config_missing_scoop_warns_and_continues() {
     let captured = warnings.clone();
 
     // Scoop enabled but not installed -> warning, processing continues.
-    let mut presence = MockManagerPresence::new();
-    presence.scoop_installed = false;
     let result = apply_diff(
         &diff,
         &options,
@@ -625,7 +624,8 @@ async fn apply_diff_async_config_missing_scoop_warns_and_continues() {
         &path,
         false,
         Some(&mock),
-        Some(&presence),
+        Some(true),
+        Some(false),
         Some(&config),
         false,
         None,
@@ -1517,6 +1517,7 @@ async fn apply_diff_async_on_output_called_for_install() {
         Some(&mock),
         None,
         None,
+        None,
         false,
         Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
         None,
@@ -1554,6 +1555,7 @@ async fn apply_diff_async_on_error_called_for_failure() {
         &path,
         false,
         Some(&mock),
+        None,
         None,
         None,
         false,
@@ -1597,6 +1599,7 @@ async fn apply_diff_async_on_output_called_for_upgrade() {
         Some(&mock),
         None,
         None,
+        None,
         false,
         Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
         None,
@@ -1634,6 +1637,7 @@ async fn apply_diff_async_on_output_called_for_remove() {
         &mut state,
         &path,
         false,
+        None,
         None,
         None,
         None,
@@ -1684,7 +1688,8 @@ async fn apply_diff_apply_config_copies_files_and_updates_state() {
         &path,
         false,
         None,
-        Some(&MockManagerPresence::new()),
+        Some(true),
+        Some(true),
         Some(&config),
         true,
         None,
@@ -1756,7 +1761,8 @@ async fn apply_diff_apply_config_drops_orphans_keeps_file() {
         &path,
         false,
         None,
-        Some(&MockManagerPresence::new()),
+        Some(true),
+        Some(true),
         Some(&config),
         true,
         None,

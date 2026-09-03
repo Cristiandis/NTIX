@@ -10,7 +10,7 @@ use ntix_rs::models::package_entry::PackageEntry;
 use ntix_rs::models::state::State;
 
 mod common;
-use common::{MockCommandRunner, MockManagerPresence, MockWingetManager};
+use common::{MockCommandRunner, MockWingetManager};
 
 fn progress() -> ProgressBar {
     ProgressBar::new_spinner()
@@ -51,7 +51,8 @@ async fn diff_with(
         state,
         winget_manager
             .map(|m| m as &dyn ntix_rs::package_manager::winget_manager_trait::WingetManagerTrait),
-        Some(&MockManagerPresence::new()),
+        Some(true),
+        Some(true),
         runner.map(|r| r as &dyn ntix_rs::package_manager::command_runner::CommandRunner),
         adopt_mode,
         upgrade_mode,
@@ -1052,6 +1053,7 @@ async fn compute_diff_with_progress_reports_steps() {
         Some(&mock),
         None,
         None,
+        None,
         false,
         false,
         true,
@@ -1132,8 +1134,17 @@ fn compute_config_files_diff_classifies_create_update_skip_orphan() {
     assert_eq!(diff.config_files_to_create[0].dest, dest_new);
     assert_eq!(diff.config_files_to_update.len(), 1);
     assert_eq!(diff.config_files_to_update[0].dest, dest_upd);
-    assert_eq!(diff.config_files_to_skip.len(), 1);
-    assert_eq!(diff.config_files_to_skip[0].dest, dest_same);
+    let same_dest = dest_same.to_string_lossy();
+    assert!(
+        !diff
+            .config_files_to_update
+            .iter()
+            .any(|e| e.dest.to_string_lossy() == same_dest)
+            && !diff
+                .config_files_to_create
+                .iter()
+                .any(|e| e.dest.to_string_lossy() == same_dest)
+    );
     assert_eq!(
         diff.config_files_no_longer_managed,
         vec![orphan.to_string_lossy().to_string()]
