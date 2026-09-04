@@ -850,3 +850,29 @@ fn load_config_files_from_import_merges() {
     );
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn load_config_files_src_not_string_errors() {
+    let dir = temp_dir();
+    let dest = dir
+        .join("dest")
+        .join("x.conf")
+        .to_string_lossy()
+        .to_string();
+    let lua = format!(
+        r#"
+        options = {{}}
+        pkgs = {{}}
+        configFiles = {{ ["{dest}"] = 123 }}
+        return {{ options = options, pkgs = pkgs, configFiles = configFiles }}
+    "#,
+        dest = lua_escape(&std::path::Path::new(&dest))
+    );
+    let path = placeholder_config_path(&dir);
+    let err = config_loader::load_from_string(&lua, path).unwrap_err();
+    assert!(
+        format!("{err}").contains("must be a source path string"),
+        "expected source-must-be-string error, got: {err}"
+    );
+    fs::remove_dir_all(&dir).unwrap();
+}

@@ -1153,3 +1153,31 @@ fn compute_config_files_diff_classifies_create_update_skip_orphan() {
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn compute_config_files_diff_unreadable_source_adds_warning() {
+    use ntix_rs::diff::diff_engine::compute_config_files_diff;
+    use ntix_rs::models::ntix_config::NTIXConfig;
+
+    let dir = temp_cfg_dir();
+    let dest = dir.join("dest").join("t.conf");
+
+    let mut config = NTIXConfig::default();
+    // source file does not exist on disk -> read fails -> warning
+    let missing_src = dir.join("missing.conf");
+    config.config_files.push(cfg_entry(&dest, &missing_src));
+
+    let state = State::default();
+    let mut diff = DiffResult::default();
+    compute_config_files_diff(&mut diff, &config, &state);
+
+    assert_eq!(diff.warnings.len(), 1);
+    assert!(
+        diff.warnings[0].contains("Could not read config file source"),
+        "expected unreadable-source warning, got: {:?}",
+        diff.warnings
+    );
+    assert!(diff.config_files_to_create.is_empty());
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -1568,6 +1568,54 @@ async fn apply_diff_async_on_error_called_for_failure() {
 }
 
 #[tokio::test]
+async fn apply_diff_async_choco_invalid_id_build_error_calls_on_error() {
+    let diff = DiffResult {
+        to_install: vec![spec("bad id", Some("1.0"), "chocolatey")],
+        ..Default::default()
+    };
+    let options = options(
+        WingetOptions::default(),
+        ChocoOptions {
+            enable: true,
+            ..Default::default()
+        },
+        ScoopOptions::default(),
+    );
+    let mut state = State::default();
+    let path = temp_state_path();
+
+    let error_messages: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let msgs = error_messages.clone();
+
+    let result = apply_diff(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        Some(true),
+        None,
+        None,
+        false,
+        None,
+        Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
+        None,
+    )
+    .await;
+
+    assert!(!result);
+    assert!(!state.chocolatey.contains_key("bad id"));
+    let msgs = error_messages.lock().unwrap();
+    assert!(
+        msgs.iter().any(|m| m.contains("Failed to build command")),
+        "expected build-error callback, got: {msgs:?}"
+    );
+    remove_path(&path);
+}
+
+#[tokio::test]
 async fn apply_diff_async_on_output_called_for_upgrade() {
     let mock = MockWingetManager::new();
     let diff = DiffResult {
@@ -1717,6 +1765,135 @@ async fn apply_diff_apply_config_copies_files_and_updates_state() {
             .get(&dest.to_string_lossy().to_string())
             .map(|h| h.as_str()),
         Some(ntix_rs::hash::sha256_hex(b"font_size 12").as_str())
+    );
+
+    remove_path(&path);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn apply_diff_apply_config_missing_source_calls_on_error() {
+    let dir = std::env::temp_dir().join(format!(
+        "ntix_exec_cfg_missing_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let missing_src = dir.join("does_not_exist.conf");
+    let dest = dir.join("nested").join("dest").join("t.conf");
+
+    let entry = ntix_rs::models::config_file::ConfigFileEntry {
+        dest: dest.clone(),
+        src: missing_src.clone(),
+    };
+    let mut diff = DiffResult::default();
+    diff.config_files_to_create.push(entry);
+
+    let options = empty_opts();
+    let mut state = State::default();
+    let path = temp_state_path();
+    let config = NTIXConfig::default();
+
+    let error_messages: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let msgs = error_messages.clone();
+
+    let ok = apply_diff(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        Some(true),
+        Some(true),
+        Some(&config),
+        true,
+        None,
+        Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
+        None,
+    )
+    .await;
+    assert!(ok);
+    let msgs = error_messages.lock().unwrap();
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("Failed to read config file source")),
+        "expected read-failure error, got: {msgs:?}"
+    );
+    assert!(
+        !state
+            .config_files
+            .contains_key(&dest.to_string_lossy().to_string())
+    );
+
+    remove_path(&path);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn apply_diff_apply_config_write_failure_calls_on_error() {
+    let dir = std::env::temp_dir().join(format!(
+        "ntix_exec_cfg_write_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("src.conf");
+    std::fs::write(&src, "content").unwrap();
+    // dest is an existing directory -> fs::write fails
+    let dest = dir.join("dest_dir");
+    std::fs::create_dir_all(&dest).unwrap();
+
+    let entry = ntix_rs::models::config_file::ConfigFileEntry {
+        dest: dest.clone(),
+        src: src.clone(),
+    };
+    let mut diff = DiffResult::default();
+    diff.config_files_to_create.push(entry);
+
+    let options = empty_opts();
+    let mut state = State::default();
+    let path = temp_state_path();
+    let config = NTIXConfig::default();
+
+    let error_messages: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let msgs = error_messages.clone();
+
+    let ok = apply_diff(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        Some(true),
+        Some(true),
+        Some(&config),
+        true,
+        None,
+        Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
+        None,
+    )
+    .await;
+    assert!(ok);
+    let msgs = error_messages.lock().unwrap();
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("Failed to write config file")),
+        "expected write-failure error, got: {msgs:?}"
+    );
+    assert!(
+        !state
+            .config_files
+            .contains_key(&dest.to_string_lossy().to_string())
     );
 
     remove_path(&path);
