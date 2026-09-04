@@ -7,7 +7,6 @@ use crate::models::{
 use crate::package_manager::{
     command_builder,
     command_runner::{CommandRunner, LineCallback},
-    manager_presence::ManagerPresence,
     package_manager_detector,
     process_command_runner::ProcessCommandRunner,
     winget_manager::WingetManager,
@@ -42,8 +41,10 @@ pub async fn apply_diff(
     state_path: &Path,
     stop_on_failure: bool,
     winget_manager: Option<&dyn WingetManagerTrait>,
-    presence: Option<&dyn ManagerPresence>,
+    choco_installed: Option<bool>,
+    scoop_installed: Option<bool>,
     config: Option<&NTIXConfig>,
+    apply_config: bool,
     on_output: Option<LineCallback<'_>>,
     on_error: Option<LineCallback<'_>>,
     runner: Option<&dyn CommandRunner>,
@@ -51,7 +52,14 @@ pub async fn apply_diff(
     let cmd: &dyn CommandRunner = runner.unwrap_or(&ProcessCommandRunner);
 
     if let Some(config) = config {
-        let validation = package_manager_detector::validate_managers(options, config, presence);
+        let validation = package_manager_detector::validate_managers_async(
+            options,
+            config,
+            winget_manager,
+            choco_installed,
+            scoop_installed,
+        )
+        .await;
         for w in &validation.warnings {
             if !diff.warnings.contains(w)
                 && let Some(cb) = on_error
@@ -76,8 +84,10 @@ pub async fn apply_diff(
         (&diff.to_remove, Operation::Remove),
     ] {
         for pkg in pkgs {
-            if !run_operation(cmd, manager, options, state, state_path, operation, pkg, on_output, on_error)
-                .await
+            if !run_operation(
+                cmd, manager, options, state, state_path, operation, pkg, on_output, on_error,
+            )
+            .await
             {
                 all_ok = false;
                 if stop_on_failure {
@@ -94,7 +104,107 @@ pub async fn apply_diff(
         update_state(state, pkg, true);
     }
 
+    if !diff.to_adopt.is_empty() {
+        save_state_or_warn(state, state_path, on_error);
+    }
+
+    if apply_config {
+        apply_config_files(
+            state,
+            &diff.config_files_to_create,
+            &diff.config_files_to_update,
+            &diff.config_files_no_longer_managed,
+            on_output,
+            on_error,
+        );
+        save_state_or_warn(state, state_path, on_error);
+    }
+
     all_ok
+}
+
+fn save_state_or_warn(
+    state: &State,
+    state_path: &Path,
+    on_error: Option<LineCallback<'_>>,
+) -> bool {
+    let ok = match state_service::save_state(state, Some(state_path), DEFAULT_MAX_RETRIES) {
+        Ok(true) => true,
+        Ok(false) | Err(_) => false,
+    };
+    if !ok && let Some(cb) = on_error {
+        cb("Failed to save state to disk. Changes may not persist across runs.");
+    }
+    ok
+}
+
+/// Copies managed config files from their resolved sources to their destinations
+/// and updates the tracked hashes in `state`. Orphaned (no longer managed) files
+/// are dropped from tracking without touching the file on disk.
+fn apply_config_files(
+    state: &mut State,
+    to_create: &[crate::models::config_file::ConfigFileEntry],
+    to_update: &[crate::models::config_file::ConfigFileEntry],
+    no_longer_managed: &[String],
+    on_output: Option<LineCallback<'_>>,
+    on_error: Option<LineCallback<'_>>,
+) {
+    for entry in to_create.iter().chain(to_update.iter()) {
+        let dest_str = entry.dest.to_string_lossy().to_string();
+        if let Some(cb) = on_output {
+            cb(&format!("Applying config file: {dest_str}"));
+        }
+
+        match std::fs::read(&entry.src) {
+            Ok(src_bytes) => {
+                if let Err(msg) = ensure_parent_dir(&entry.dest) {
+                    if let Some(cb) = on_error {
+                        cb(&format!(
+                            "Failed to create directory for config file {dest_str}: {msg}"
+                        ));
+                    }
+                    continue;
+                }
+
+                match std::fs::write(&entry.dest, &src_bytes) {
+                    Ok(()) => {
+                        state
+                            .config_files
+                            .insert(dest_str, crate::hash::sha256_hex(&src_bytes));
+                    }
+                    Err(e) => {
+                        if let Some(cb) = on_error {
+                            cb(&format!("Failed to write config file {dest_str}: {e}"));
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                if let Some(cb) = on_error {
+                    cb(&format!(
+                        "Failed to read config file source '{}': {e}",
+                        entry.src.display()
+                    ));
+                }
+            }
+        }
+    }
+
+    for dest in no_longer_managed {
+        state.config_files.remove(dest);
+    }
+}
+
+/// Creates the parent directory of `dest` if it exists and is not the
+/// filesystem root. Returns an error message on failure.
+fn ensure_parent_dir(dest: &std::path::Path) -> Result<(), String> {
+    let Some(parent) = dest.parent() else {
+        return Ok(());
+    };
+    if parent.as_os_str().is_empty() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())
 }
 
 async fn apply_buckets(
@@ -123,7 +233,7 @@ async fn apply_buckets(
             state
                 .scoop_buckets
                 .insert(bucket.name.clone(), bucket.url.clone());
-            let _ = state_service::save_state(state, Some(state_path), DEFAULT_MAX_RETRIES);
+            save_state_or_warn(state, state_path, on_error);
         }
     }
 
@@ -140,7 +250,7 @@ async fn apply_buckets(
             all_ok = false;
         } else {
             state.scoop_buckets.remove(&bucket.name);
-            let _ = state_service::save_state(state, Some(state_path), DEFAULT_MAX_RETRIES);
+            save_state_or_warn(state, state_path, on_error);
         }
     }
 
@@ -185,11 +295,7 @@ async fn run_operation(
         "winget" => match operation {
             Operation::Upgrade => {
                 manager
-                    .upgrade(
-                        &pkg.id,
-                        options.winget.accept_agreement,
-                        !options.winget.interactive,
-                    )
+                    .upgrade(&pkg.id, options.winget, on_output, on_error)
                     .await
             }
             Operation::Install => {
@@ -197,15 +303,16 @@ async fn run_operation(
                     .install(
                         &pkg.id,
                         pkg.version.as_deref(),
-                        options.winget.accept_agreement,
-                        !options.winget.interactive,
+                        options.winget,
+                        on_output,
+                        on_error,
                     )
                     .await
             }
             Operation::Remove => {
-                let build_result =
-                    command_builder::build_winget_uninstall(&pkg.id, options.winget);
-                run_built_command(cmd, build_result, on_output, on_error).await
+                manager
+                    .uninstall(&pkg.id, options.winget, on_output, on_error)
+                    .await
             }
         },
         "chocolatey" => {
@@ -245,7 +352,7 @@ async fn run_operation(
 
     if success {
         update_state(state, pkg, installs);
-        let _ = state_service::save_state(state, Some(state_path), DEFAULT_MAX_RETRIES);
+        save_state_or_warn(state, state_path, on_error);
         true
     } else {
         if let Some(cb) = on_error {

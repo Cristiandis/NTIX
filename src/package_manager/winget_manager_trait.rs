@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 
 use crate::models::installed_packages::UpgradeInfo;
+use crate::models::options::WingetOptions;
+use crate::package_manager::command_runner::LineCallback;
 
 #[async_trait]
 pub trait WingetManagerTrait: Send + Sync {
@@ -17,11 +19,24 @@ pub trait WingetManagerTrait: Send + Sync {
         &self,
         id: &str,
         version: Option<&str>,
-        accept_agreements: bool,
-        silent: bool,
+        options: WingetOptions,
+        on_output: Option<LineCallback<'_>>,
+        on_error: Option<LineCallback<'_>>,
     ) -> bool;
-    async fn uninstall(&self, id: &str, accept_agreements: bool, silent: bool) -> bool;
-    async fn upgrade(&self, id: &str, accept_agreements: bool, silent: bool) -> bool;
+    async fn uninstall(
+        &self,
+        id: &str,
+        options: WingetOptions,
+        on_output: Option<LineCallback<'_>>,
+        on_error: Option<LineCallback<'_>>,
+    ) -> bool;
+    async fn upgrade(
+        &self,
+        id: &str,
+        options: WingetOptions,
+        on_output: Option<LineCallback<'_>>,
+        on_error: Option<LineCallback<'_>>,
+    ) -> bool;
     async fn package_exists(
         &self,
         id: &str,

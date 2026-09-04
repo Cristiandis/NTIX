@@ -74,7 +74,9 @@ fn load_state_cleans_orphan_tmp() {
 
 #[test]
 fn save_state_directory_creation_fails_returns_err() {
-    let bad_path = std::env::temp_dir().join("ntix_test_impossible<dir").join("state.json");
+    let bad_path = std::env::temp_dir()
+        .join("ntix_test_impossible<dir")
+        .join("state.json");
     let state = State::default();
     let result = state_service::save_state(&state, Some(&bad_path), 3);
     assert!(result.is_err());
@@ -100,4 +102,50 @@ fn save_state_exhausts_retries_returns_false() {
 
     let _ = fs::remove_dir_all(&state_file_path);
     let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn load_state_v1_migrates_to_v2_with_empty_config_files() {
+    let path = temp_json_path("v1migrate");
+    fs::write(
+        &path,
+        r#"{
+            "version": 1,
+            "winget": { "Winget.Package": "1.0" },
+            "chocolatey": {},
+            "scoop": {},
+            "scoopBuckets": {}
+        }"#,
+    )
+    .unwrap();
+
+    let loaded = state_service::load_state(Some(&path)).expect("should load");
+    assert_eq!(loaded.version, 2);
+    assert!(loaded.config_files.is_empty());
+    assert_eq!(
+        loaded.winget.get("Winget.Package").map(|s| s.as_str()),
+        Some("1.0")
+    );
+
+    fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn state_round_trip_preserves_config_files() {
+    let mut state = sample_state();
+    state
+        .config_files
+        .insert("C:/dest/app.conf".to_string(), "abc123".to_string());
+    let path = temp_json_path("cfroundtrip");
+    assert!(state_service::save_state(&state, Some(&path), 3).unwrap());
+    let loaded = state_service::load_state(Some(&path)).expect("should load");
+    assert_eq!(loaded.version, 2);
+    assert_eq!(
+        loaded
+            .config_files
+            .get("C:/dest/app.conf")
+            .map(|s| s.as_str()),
+        Some("abc123")
+    );
+    fs::remove_file(&path).unwrap();
 }

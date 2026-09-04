@@ -36,6 +36,10 @@ enum Commands {
         /// Check for and apply available upgrades
         #[arg(short = 'u', long = "upgrade")]
         upgrade: bool,
+
+        /// Manage arbitrary config files declared in the configFiles table
+        #[arg(short = 'c', long = "apply-configs")]
+        apply_config: bool,
     },
 
     /// Show what would change
@@ -50,6 +54,10 @@ enum Commands {
         /// Check for and apply available upgrades
         #[arg(short = 'u', long = "upgrade")]
         upgrade: bool,
+
+        /// Show config files declared in the configFiles table
+        #[arg(short = 'c', long = "apply-configs")]
+        apply_config: bool,
     },
 
     /// Show current NTIX state
@@ -68,12 +76,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             stop_on_failure,
             adopt,
             upgrade,
-        } => commands::apply(config_path, dry_run, no_gc, stop_on_failure, adopt, upgrade).await?,
+            apply_config,
+        } => {
+            commands::apply(
+                config_path,
+                dry_run,
+                no_gc,
+                stop_on_failure,
+                adopt,
+                upgrade,
+                apply_config,
+            )
+            .await?
+        }
         Commands::Diff {
             config_path,
             adopt,
             upgrade,
-        } => commands::diff_cmd(config_path, adopt, upgrade).await?,
+            apply_config,
+        } => commands::diff_cmd(config_path, adopt, upgrade, apply_config).await?,
         Commands::State => commands::state_cmd()?,
     };
 

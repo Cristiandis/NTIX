@@ -9,11 +9,7 @@ use ntix_rs::package_manager::package_manager_detector;
 mod common;
 use common::{MockCommandRunner, MockWingetManager};
 
-fn opts(
-    winget_enable: bool,
-    choco_enable: bool,
-    scoop_enable: bool,
-) -> NTIXOptions {
+fn opts(winget_enable: bool, choco_enable: bool, scoop_enable: bool) -> NTIXOptions {
     NTIXOptions {
         winget: WingetOptions {
             enable: winget_enable,
@@ -61,7 +57,10 @@ async fn get_installed_packages_async_choco_two_field_format_detected() {
 
     let result =
         package_manager_detector::get_installed_packages_async(Some(&mock), Some(&runner)).await;
-    assert_eq!(result.chocolatey.get("ripgrep"), Some(&"14.1.0".to_string()));
+    assert_eq!(
+        result.chocolatey.get("ripgrep"),
+        Some(&"14.1.0".to_string())
+    );
     assert_eq!(result.chocolatey.get("fd"), Some(&"10.4.2".to_string()));
 }
 
@@ -98,13 +97,10 @@ async fn get_installed_packages_async_scoop_empty_returns_empty() {
 #[tokio::test]
 async fn get_winget_upgradable_packages_async_returns_upgrades() {
     let mut mock = MockWingetManager::new();
-    mock.upgradable_packages.insert(
-        "upgrade-pkg".to_string(),
-        UpgradeInfo::new("1.0", "2.0"),
-    );
+    mock.upgradable_packages
+        .insert("upgrade-pkg".to_string(), UpgradeInfo::new("1.0", "2.0"));
 
-    let result =
-        package_manager_detector::get_winget_upgradable_packages_async(Some(&mock)).await;
+    let result = package_manager_detector::get_winget_upgradable_packages_async(Some(&mock)).await;
     assert_eq!(result.get("upgrade-pkg").unwrap().current_version, "1.0");
     assert_eq!(result.get("upgrade-pkg").unwrap().available_version, "2.0");
 }
@@ -112,12 +108,12 @@ async fn get_winget_upgradable_packages_async_returns_upgrades() {
 #[tokio::test]
 async fn get_choco_upgradable_packages_async_mock_runner() {
     let mut runner = MockCommandRunner::new();
-    runner
-        .output_responses
-        .insert("choco outdated".to_string(), "git|2.30.0|2.40.0|\n".to_string());
+    runner.output_responses.insert(
+        "choco outdated".to_string(),
+        "git|2.30.0|2.40.0|\n".to_string(),
+    );
 
-    let result =
-        package_manager_detector::get_choco_upgradable_packages_async(Some(&runner)).await;
+    let result = package_manager_detector::get_choco_upgradable_packages_async(Some(&runner)).await;
     assert_eq!(result.get("git").unwrap().current_version, "2.30.0");
     assert_eq!(result.get("git").unwrap().available_version, "2.40.0");
 }
@@ -131,8 +127,7 @@ async fn get_scoop_upgradable_packages_async_mock_runner() {
             .to_string(),
     );
 
-    let result =
-        package_manager_detector::get_scoop_upgradable_packages_async(Some(&runner)).await;
+    let result = package_manager_detector::get_scoop_upgradable_packages_async(Some(&runner)).await;
     assert_eq!(result.get("rg").unwrap().current_version, "13.0.0");
     assert_eq!(result.get("rg").unwrap().available_version, "14.0.3");
 }
@@ -144,12 +139,10 @@ async fn validate_choco_package_exists_async_with_mock_runner() {
         .output_responses
         .insert("choco search git".to_string(), "git|2.40.0\n".to_string());
 
-    let result = package_manager_detector::validate_choco_package_exists_async("git", &runner).await;
+    let result =
+        package_manager_detector::validate_choco_package_exists_async("git", &runner).await;
     assert!(result);
-    assert!(runner
-        .commands()
-        .iter()
-        .any(|c| c.contains("choco search")));
+    assert!(runner.commands().iter().any(|c| c.contains("choco search")));
 }
 
 #[tokio::test]
@@ -229,7 +222,8 @@ async fn validate_managers_async_scoop_disabled_returns_valid() {
         ..Default::default()
     };
 
-    package_manager_detector::validate_managers_async(&options, &config, Some(&mock), None).await;
+    package_manager_detector::validate_managers_async(&options, &config, Some(&mock), None, None)
+        .await;
 }
 
 #[tokio::test]
@@ -241,7 +235,8 @@ async fn validate_managers_async_choco_disabled_returns_valid() {
         ..Default::default()
     };
 
-    package_manager_detector::validate_managers_async(&options, &config, Some(&mock), None).await;
+    package_manager_detector::validate_managers_async(&options, &config, Some(&mock), None, None)
+        .await;
 }
 
 #[tokio::test]
@@ -250,7 +245,8 @@ async fn validate_managers_async_null_options_defaults() {
     let config = NTIXConfig::default();
     let options = config.options.clone();
 
-    package_manager_detector::validate_managers_async(&options, &config, Some(&mock), None).await;
+    package_manager_detector::validate_managers_async(&options, &config, Some(&mock), None, None)
+        .await;
 }
 
 #[test]
@@ -261,7 +257,7 @@ fn validate_managers_scoop_disabled_returns_valid() {
         ..Default::default()
     };
 
-    package_manager_detector::validate_managers(&options, &config, None);
+    package_manager_detector::validate_managers(&options, &config, None, None);
 }
 
 #[test]
@@ -272,7 +268,7 @@ fn validate_managers_choco_disabled_returns_valid() {
         ..Default::default()
     };
 
-    package_manager_detector::validate_managers(&options, &config, None);
+    package_manager_detector::validate_managers(&options, &config, None, None);
 }
 
 #[test]
@@ -287,11 +283,13 @@ fn validate_managers_scoop_packages_declared_not_enabled_generates_warning() {
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers(&options, &config, None);
-    assert!(result
-        .warnings
-        .iter()
-        .any(|w| w.contains("Scoop packages declared but scoop not enabled")));
+    let result = package_manager_detector::validate_managers(&options, &config, None, None);
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|w| w.contains("Scoop packages declared but scoop not enabled"))
+    );
 }
 
 #[test]
@@ -306,11 +304,13 @@ fn validate_managers_choco_packages_declared_not_enabled_generates_warning() {
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers(&options, &config, None);
-    assert!(result
-        .warnings
-        .iter()
-        .any(|w| w.contains("Chocolatey packages declared but chocolatey not enabled")));
+    let result = package_manager_detector::validate_managers(&options, &config, None, None);
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|w| w.contains("Chocolatey packages declared but chocolatey not enabled"))
+    );
 }
 
 #[test]
@@ -321,7 +321,7 @@ fn validate_managers_sync_with_options_returns_valid() {
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers(&options, &config, None);
+    let result = package_manager_detector::validate_managers(&options, &config, None, None);
     assert!(result.warnings.is_empty());
 }
 

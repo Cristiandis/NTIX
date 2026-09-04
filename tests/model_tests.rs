@@ -30,7 +30,7 @@ fn state_default_empty_dictionaries() {
     assert!(state.winget.is_empty());
     assert!(state.chocolatey.is_empty());
     assert!(state.scoop.is_empty());
-    assert_eq!(state.version, 1);
+    assert_eq!(state.version, 2);
 }
 
 #[test]
@@ -64,7 +64,8 @@ fn ntix_options_default_values() {
     let options = NTIXOptions::default();
     assert!(!options.winget.enable);
     assert!(!options.winget.accept_agreement);
-    assert!(!options.winget.interactive);
+    assert!(!options.winget.silent);
+    assert!(!options.winget.disable_interactivity);
     assert!(!options.chocolatey.enable);
     assert!(!options.chocolatey.yes);
     assert!(!options.scoop.enable);
@@ -123,34 +124,6 @@ fn diff_result_is_empty_true_when_only_to_skip() {
         ..Default::default()
     };
     assert!(diff.is_empty());
-}
-
-#[test]
-fn build_winget_uninstall_default_flags() {
-    let cmd = command_builder::build_winget_uninstall("Git.Git", WingetOptions::default()).unwrap();
-    assert_eq!(cmd, "winget uninstall --id Git.Git --exact --silent");
-}
-
-#[test]
-fn build_winget_uninstall_with_accept_agreements() {
-    let opts = WingetOptions {
-        accept_agreement: true,
-        ..Default::default()
-    };
-    let cmd = command_builder::build_winget_uninstall("Git.Git", opts).unwrap();
-    assert!(cmd.contains("--accept-source-agreements"));
-    assert!(!cmd.contains("--accept-package-agreements"));
-}
-
-#[test]
-fn build_winget_uninstall_interactive() {
-    let opts = WingetOptions {
-        interactive: true,
-        ..Default::default()
-    };
-    let cmd = command_builder::build_winget_uninstall("Git.Git", opts).unwrap();
-    assert!(!cmd.contains("--silent"));
-    assert!(!cmd.contains("--accept"));
 }
 
 #[test]

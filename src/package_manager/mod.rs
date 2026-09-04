@@ -1,6 +1,5 @@
 pub mod command_builder;
 pub mod command_runner;
-pub mod manager_presence;
 pub mod package_manager_detector;
 pub mod process_command_runner;
 pub mod table_parser;

@@ -1,3 +1,4 @@
+pub mod config_file;
 pub mod diff_result;
 pub mod import_node;
 pub mod installed_packages;

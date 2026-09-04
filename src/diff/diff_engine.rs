@@ -13,9 +13,8 @@ use crate::{
         package_entry::PackageEntry, package_spec::PackageSpec, state::State,
     },
     package_manager::{
-        command_builder, command_runner::CommandRunner, manager_presence::ManagerPresence,
-        package_manager_detector, process_command_runner::ProcessCommandRunner,
-        winget_manager_trait::WingetManagerTrait,
+        command_builder, command_runner::CommandRunner, package_manager_detector,
+        process_command_runner::ProcessCommandRunner, winget_manager_trait::WingetManagerTrait,
     },
 };
 
@@ -24,7 +23,8 @@ pub async fn compute_diff(
     config: &NTIXConfig,
     state: &State,
     winget_manager: Option<&dyn WingetManagerTrait>,
-    presence: Option<&dyn ManagerPresence>,
+    choco_installed: Option<bool>,
+    scoop_installed: Option<bool>,
     runner: Option<&dyn CommandRunner>,
     adopt_mode: bool,
     upgrade_mode: bool,
@@ -33,9 +33,14 @@ pub async fn compute_diff(
     progress: &ProgressBar,
 ) -> Result<DiffResult, Box<dyn Error>> {
     progress.set_message("Checking package managers...");
-    let validation =
-        package_manager_detector::validate_managers_async(&config.options, config, winget_manager, presence)
-            .await;
+    let validation = package_manager_detector::validate_managers_async(
+        &config.options,
+        config,
+        winget_manager,
+        choco_installed,
+        scoop_installed,
+    )
+    .await;
 
     let mut result = DiffResult {
         warnings: validation.warnings,
@@ -122,7 +127,12 @@ pub async fn compute_diff(
 
     progress.set_message("Finding orphans...");
     if validation.winget_installed {
-        find_orphans(&mut result, &state.winget, &config.winget_packages, "winget");
+        find_orphans(
+            &mut result,
+            &state.winget,
+            &config.winget_packages,
+            "winget",
+        );
     }
     if validation.choco_installed {
         find_orphans(
@@ -203,6 +213,12 @@ async fn compute_bucket_diff(
     }
 }
 
+fn ci_lookup<'a, V>(map: &'a HashMap<String, V>, key: &str) -> Option<&'a V> {
+    map.iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(key))
+        .map(|(_, v)| v)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn classify_packages(
     result: &mut DiffResult,
@@ -224,19 +240,23 @@ fn classify_packages(
             version: pkg.version.clone(),
             source: source_name.to_string(),
         };
-        let is_installed = installed_dict.contains_key(&pkg.id);
-        let in_state = state_dict.contains_key(&pkg.id);
+        let is_installed = ci_lookup(installed_dict, &pkg.id).is_some();
+        let in_state = ci_lookup(state_dict, &pkg.id).is_some();
 
         if let Some(pkg_version) = &pkg.version {
             if in_state {
-                let state_version = &state_dict[&pkg.id];
+                let state_version =
+                    ci_lookup(state_dict, &pkg.id).expect("in_state implies a state entry");
                 if !state_version.eq_ignore_ascii_case(pkg_version) {
                     result.to_install.push(spec);
-                } else {
+                } else if is_installed {
                     result.to_skip.push(spec);
+                } else {
+                    result.to_install.push(spec);
                 }
             } else if is_installed && adopt_mode {
-                let installed_version = &installed_dict[&pkg.id];
+                let installed_version = ci_lookup(installed_dict, &pkg.id)
+                    .expect("is_installed and adopt_mode imply an installed entry");
                 if installed_version.eq_ignore_ascii_case(pkg_version) {
                     spec.version = Some(installed_version.clone());
                     result.to_adopt.push(spec);
@@ -246,7 +266,7 @@ fn classify_packages(
             } else {
                 result.to_install.push(spec);
             }
-        } else if let Some(upgrade) = upgradable.get(&pkg.id) {
+        } else if is_installed && let Some(upgrade) = ci_lookup(upgradable, &pkg.id) {
             spec.version = Some(upgrade.available_version.clone());
             result.to_upgrade.push(spec);
         } else if !is_installed && !in_state {
@@ -256,7 +276,9 @@ fn classify_packages(
         } else if is_installed && adopt_mode {
             result.to_adopt.push(spec);
         } else if is_installed {
-            result.to_skip.push(spec);
+            // Installed on the system but not tracked: report as unmanaged
+            // rather than counting it as "already managed".
+            result.to_untracked.push(spec);
         } else if in_state {
             result.to_install.push(spec);
         }
@@ -344,17 +366,15 @@ async fn validate_package_availability(
         for pkg in pkgs {
             match results.get(&pkg.id) {
                 Some(Some(false)) => {
-                    result.warnings.push(format!(
-                        "Package not found in {source}: {}",
-                        pkg.id
-                    ));
+                    result
+                        .warnings
+                        .push(format!("Package not found in {source}: {}", pkg.id));
                     invalid.insert(pkg.id.clone());
                 }
                 Some(None) | None => {
-                    result.warnings.push(format!(
-                        "Could not verify package in {source}: {}",
-                        pkg.id
-                    ));
+                    result
+                        .warnings
+                        .push(format!("Could not verify package in {source}: {}", pkg.id));
                 }
                 Some(Some(true)) => {}
             }
@@ -366,7 +386,7 @@ async fn validate_package_availability(
 
 fn new_pkg_ids(pkgs: &[PackageSpec], state_dict: &HashMap<String, String>) -> Vec<String> {
     pkgs.iter()
-        .filter(|p| !state_dict.contains_key(&p.id))
+        .filter(|p| ci_lookup(state_dict, &p.id).is_none())
         .map(|p| p.id.clone())
         .collect()
 }
@@ -378,4 +398,44 @@ fn extract_pkgs_to_install(result: &DiffResult, source: &str) -> Vec<PackageSpec
         .filter(|p| p.source == source)
         .cloned()
         .collect()
+}
+
+/// Classifies the config-file state for `config` relative to `state`, populating
+/// the `config_files_*` lists on `result`. Only called when the caller opted in
+/// with `-c`/`--apply-configs`; otherwise config files are ignored entirely.
+pub fn compute_config_files_diff(result: &mut DiffResult, config: &NTIXConfig, state: &State) {
+    let mut seen_dests: HashSet<String> = HashSet::new();
+
+    for entry in &config.config_files {
+        let dest_str = entry.dest.to_string_lossy().to_string();
+        seen_dests.insert(dest_str.clone());
+
+        match std::fs::read(&entry.src) {
+            Ok(src_bytes) => {
+                let src_hash = crate::hash::sha256_hex(&src_bytes);
+                match state.config_files.get(&dest_str) {
+                    Some(stored) if *stored == src_hash => {}
+                    Some(_) => {
+                        result.config_files_to_update.push(entry.clone());
+                    }
+                    None => {
+                        result.config_files_to_create.push(entry.clone());
+                    }
+                }
+            }
+            Err(_) => {
+                result.warnings.push(format!(
+                    "Could not read config file source '{}' for '{}'",
+                    entry.src.display(),
+                    dest_str
+                ));
+            }
+        }
+    }
+
+    for dest in state.config_files.keys() {
+        if !seen_dests.contains(dest) {
+            result.config_files_no_longer_managed.push(dest.clone());
+        }
+    }
 }

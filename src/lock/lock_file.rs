@@ -76,11 +76,11 @@ impl Drop for LockFile {
 fn open_exclusive(path: &std::path::Path) -> io::Result<File> {
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::io::FromRawHandle;
-    use windows::core::PCWSTR;
     use windows::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE};
     use windows::Win32::Storage::FileSystem::{
-        CreateFileW, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_MODE,
+        CREATE_ALWAYS, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_MODE,
     };
+    use windows::core::PCWSTR;
 
     let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 

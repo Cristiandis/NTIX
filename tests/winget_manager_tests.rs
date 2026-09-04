@@ -1,5 +1,6 @@
 #![cfg(target_os = "windows")]
 
+use ntix_rs::models::options::WingetOptions;
 use ntix_rs::package_manager::winget_manager::WingetManager;
 use ntix_rs::package_manager::winget_manager_trait::WingetManagerTrait;
 
@@ -43,7 +44,13 @@ async fn get_upgradable_packages_returns_dictionary() {
 async fn install_with_invalid_package_returns_false() {
     let manager = WingetManager;
     let result = manager
-        .install("nonexistent-package-xyz-123", None, false, true)
+        .install(
+            "nonexistent-package-xyz-123",
+            None,
+            WingetOptions::default(),
+            None,
+            None,
+        )
         .await;
     assert!(!result);
 }
@@ -52,7 +59,12 @@ async fn install_with_invalid_package_returns_false() {
 async fn uninstall_with_invalid_package_returns_false() {
     let manager = WingetManager;
     let result = manager
-        .uninstall("nonexistent-package-xyz-123", false, true)
+        .uninstall(
+            "nonexistent-package-xyz-123",
+            WingetOptions::default(),
+            None,
+            None,
+        )
         .await;
     assert!(!result);
 }
@@ -61,7 +73,12 @@ async fn uninstall_with_invalid_package_returns_false() {
 async fn upgrade_with_invalid_package_returns_false() {
     let manager = WingetManager;
     let result = manager
-        .upgrade("nonexistent-package-xyz-123", false, true)
+        .upgrade(
+            "nonexistent-package-xyz-123",
+            WingetOptions::default(),
+            None,
+            None,
+        )
         .await;
     assert!(!result);
 }

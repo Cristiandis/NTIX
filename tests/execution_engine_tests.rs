@@ -4,18 +4,16 @@ use std::path::PathBuf;
 use ntix_rs::execution::execution_engine::apply_diff;
 use ntix_rs::models::diff_result::DiffResult;
 use ntix_rs::models::ntix_config::NTIXConfig;
-use ntix_rs::models::options::{ChocoOptions, NTIXOptions, ScoopBucket, ScoopOptions, WingetOptions};
+use ntix_rs::models::options::{
+    ChocoOptions, NTIXOptions, ScoopBucket, ScoopOptions, WingetOptions,
+};
 use ntix_rs::models::package_spec::PackageSpec;
 use ntix_rs::models::state::State;
 
 mod common;
-use common::{MockCommandRunner, MockManagerPresence, MockWingetManager};
+use common::{MockCommandRunner, MockWingetManager};
 
-fn options(
-    winget: WingetOptions,
-    choco: ChocoOptions,
-    scoop: ScoopOptions,
-) -> NTIXOptions {
+fn options(winget: WingetOptions, choco: ChocoOptions, scoop: ScoopOptions) -> NTIXOptions {
     NTIXOptions {
         winget,
         chocolatey: choco,
@@ -28,7 +26,8 @@ fn winget_opts() -> NTIXOptions {
         WingetOptions {
             enable: true,
             accept_agreement: true,
-            interactive: false,
+            silent: false,
+            disable_interactivity: true,
         },
         ChocoOptions::default(),
         ScoopOptions::default(),
@@ -36,7 +35,11 @@ fn winget_opts() -> NTIXOptions {
 }
 
 fn empty_opts() -> NTIXOptions {
-    options(WingetOptions::default(), ChocoOptions::default(), ScoopOptions::default())
+    options(
+        WingetOptions::default(),
+        ChocoOptions::default(),
+        ScoopOptions::default(),
+    )
 }
 
 fn spec(id: &str, version: Option<&str>, source: &str) -> PackageSpec {
@@ -86,9 +89,12 @@ async fn apply(
         state,
         path,
         stop_on_failure,
-        winget_manager.map(|m| m as &dyn ntix_rs::package_manager::winget_manager_trait::WingetManagerTrait),
-        Some(&MockManagerPresence::new()),
+        winget_manager
+            .map(|m| m as &dyn ntix_rs::package_manager::winget_manager_trait::WingetManagerTrait),
+        Some(true),
+        Some(true),
         config,
+        false,
         None,
         None,
         runner.map(|r| r as &dyn ntix_rs::package_manager::command_runner::CommandRunner),
@@ -120,7 +126,17 @@ async fn apply_diff_async_winget_install_uses_mock_manager() {
     let mut state = State::default();
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, Some(&mock), None, None).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        Some(&mock),
+        None,
+        None,
+    )
+    .await;
     assert!(result);
     assert_eq!(state.winget.get("test-pkg"), Some(&"1.0".to_string()));
     assert_eq!(mock.install_call_count(), 1);
@@ -142,7 +158,17 @@ async fn apply_diff_async_winget_upgrade_uses_mock_manager() {
         .insert("test-pkg".to_string(), "1.0".to_string());
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, Some(&mock), None, None).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        Some(&mock),
+        None,
+        None,
+    )
+    .await;
     assert!(result);
     assert_eq!(state.winget.get("test-pkg"), Some(&"2.0".to_string()));
     assert_eq!(mock.upgrade_call_count(), 1);
@@ -151,7 +177,7 @@ async fn apply_diff_async_winget_upgrade_uses_mock_manager() {
 
 #[tokio::test]
 async fn apply_diff_async_winget_uninstall_uses_mock_manager() {
-    let mock_runner = MockCommandRunner::new();
+    let mock = MockWingetManager::new();
 
     let diff = DiffResult {
         to_remove: vec![spec("test-pkg", Some("1.0"), "winget")],
@@ -164,13 +190,20 @@ async fn apply_diff_async_winget_uninstall_uses_mock_manager() {
         .insert("test-pkg".to_string(), "1.0".to_string());
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, Some(&mock_runner)).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        Some(&mock),
+        None,
+        None,
+    )
+    .await;
     assert!(result);
+    assert_eq!(mock.uninstall_call_count(), 1);
     assert!(!state.winget.contains_key("test-pkg"));
-    assert!(mock_runner
-        .commands()
-        .iter()
-        .any(|c| c.contains("winget uninstall")));
     remove_path(&path);
 }
 
@@ -189,7 +222,8 @@ async fn apply_diff_async_mixed_sources_works_correctly() {
         WingetOptions {
             enable: true,
             accept_agreement: true,
-            interactive: false,
+            silent: false,
+            disable_interactivity: true,
         },
         ChocoOptions {
             enable: true,
@@ -250,7 +284,17 @@ async fn apply_diff_async_winget_install_failure_sets_all_ok_false() {
     let mut state = State::default();
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, Some(&mock), None, None).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        Some(&mock),
+        None,
+        None,
+    )
+    .await;
     assert!(!result);
     assert!(!state.winget.contains_key("fail-pkg"));
     remove_path(&path);
@@ -259,7 +303,10 @@ async fn apply_diff_async_winget_install_failure_sets_all_ok_false() {
 #[tokio::test]
 async fn apply_diff_async_stop_on_false_continues_after_failure() {
     let diff = DiffResult {
-        to_install: vec![spec("fail-pkg", Some("1.0"), "winget"), spec("ok-pkg", Some("2.0"), "winget")],
+        to_install: vec![
+            spec("fail-pkg", Some("1.0"), "winget"),
+            spec("ok-pkg", Some("2.0"), "winget"),
+        ],
         ..Default::default()
     };
     let options = winget_opts();
@@ -273,7 +320,17 @@ async fn apply_diff_async_stop_on_false_continues_after_failure() {
         ("ok-pkg".to_string(), true),
     ]);
 
-    let result = apply(&diff, &options, &mut state, &path, false, Some(&mock), None, None).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        Some(&mock),
+        None,
+        None,
+    )
+    .await;
     assert!(!result);
     assert_eq!(state.winget.get("ok-pkg"), Some(&"2.0".to_string()));
     assert_eq!(mock.install_call_count(), 2);
@@ -289,14 +346,27 @@ async fn apply_diff_async_stop_on_true_returns_early_on_failure() {
     ]);
 
     let diff = DiffResult {
-        to_install: vec![spec("fail-pkg", Some("1.0"), "winget"), spec("ok-pkg", Some("2.0"), "winget")],
+        to_install: vec![
+            spec("fail-pkg", Some("1.0"), "winget"),
+            spec("ok-pkg", Some("2.0"), "winget"),
+        ],
         ..Default::default()
     };
     let options = winget_opts();
     let mut state = State::default();
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, true, Some(&mock), None, None).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        true,
+        Some(&mock),
+        None,
+        None,
+    )
+    .await;
     assert!(!result);
     assert!(!state.winget.contains_key("ok-pkg"));
     assert_eq!(mock.install_call_count(), 1);
@@ -322,7 +392,17 @@ async fn apply_diff_async_disabled_source_skips_package() {
     let mut state = State::default();
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, Some(&mock), None, None).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        Some(&mock),
+        None,
+        None,
+    )
+    .await;
     assert!(result);
     assert!(state.winget.is_empty());
     assert_eq!(mock.install_call_count(), 0);
@@ -341,7 +421,17 @@ async fn apply_diff_async_null_version_records_latest() {
     let mut state = State::default();
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, Some(&mock), None, None).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        Some(&mock),
+        None,
+        None,
+    )
+    .await;
     assert!(result);
     assert_eq!(state.winget.get("test-pkg"), Some(&"latest".to_string()));
     remove_path(&path);
@@ -360,7 +450,17 @@ async fn apply_diff_async_diff_with_warnings_still_processes() {
     let mut state = State::default();
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, Some(&mock), None, None).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        Some(&mock),
+        None,
+        None,
+    )
+    .await;
     assert!(result);
     assert!(state.winget.contains_key("test-pkg"));
     remove_path(&path);
@@ -396,7 +496,6 @@ async fn apply_diff_async_config_missing_choco_warns_and_continues() {
     let captured = warnings.clone();
 
     // Choco enabled but not installed -> warning, processing continues.
-    let presence = MockManagerPresence::with_choco(false);
     let result = apply_diff(
         &diff,
         &options,
@@ -404,8 +503,10 @@ async fn apply_diff_async_config_missing_choco_warns_and_continues() {
         &path,
         false,
         Some(&mock),
-        Some(&presence),
+        Some(false),
+        Some(true),
         Some(&config),
+        false,
         None,
         Some(&|msg: &str| captured.lock().unwrap().push(msg.to_string())),
         None,
@@ -511,8 +612,6 @@ async fn apply_diff_async_config_missing_scoop_warns_and_continues() {
     let captured = warnings.clone();
 
     // Scoop enabled but not installed -> warning, processing continues.
-    let mut presence = MockManagerPresence::new();
-    presence.scoop_installed = false;
     let result = apply_diff(
         &diff,
         &options,
@@ -520,8 +619,10 @@ async fn apply_diff_async_config_missing_scoop_warns_and_continues() {
         &path,
         false,
         Some(&mock),
-        Some(&presence),
+        Some(true),
+        Some(false),
         Some(&config),
+        false,
         None,
         Some(&|msg: &str| captured.lock().unwrap().push(msg.to_string())),
         None,
@@ -549,7 +650,8 @@ async fn apply_diff_async_config_validation_with_warnings_still_processes() {
         WingetOptions {
             enable: true,
             accept_agreement: true,
-            interactive: false,
+            silent: false,
+            disable_interactivity: true,
         },
         ChocoOptions {
             enable: false,
@@ -603,7 +705,17 @@ async fn apply_diff_async_to_adopt_updates_state_without_install() {
     let mut state = State::default();
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, Some(&mock), None, None).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        Some(&mock),
+        None,
+        None,
+    )
+    .await;
     assert!(result);
     assert_eq!(state.winget.get("manual-pkg"), Some(&"3.0".to_string()));
     assert_eq!(mock.install_call_count(), 0);
@@ -622,7 +734,17 @@ async fn apply_diff_async_to_adopt_null_version_records_latest() {
     let mut state = State::default();
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, Some(&mock), None, None).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        Some(&mock),
+        None,
+        None,
+    )
+    .await;
     assert!(result);
     assert_eq!(state.winget.get("manual-pkg"), Some(&"latest".to_string()));
     remove_path(&path);
@@ -647,10 +769,25 @@ async fn apply_diff_async_choco_install_success() {
     let mut state = State::default();
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, Some(&runner)).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        None,
+        Some(&runner),
+    )
+    .await;
     assert!(result);
     assert_eq!(state.chocolatey.get("choco-pkg"), Some(&"1.0".to_string()));
-    assert!(runner.commands().iter().any(|c| c.contains("choco install")));
+    assert!(
+        runner
+            .commands()
+            .iter()
+            .any(|c| c.contains("choco install"))
+    );
     remove_path(&path);
 }
 
@@ -673,10 +810,25 @@ async fn apply_diff_async_scoop_install_success() {
     let mut state = State::default();
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, Some(&runner)).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        None,
+        Some(&runner),
+    )
+    .await;
     assert!(result);
     assert_eq!(state.scoop.get("scoop-pkg"), Some(&"2.0".to_string()));
-    assert!(runner.commands().iter().any(|c| c.contains("scoop install")));
+    assert!(
+        runner
+            .commands()
+            .iter()
+            .any(|c| c.contains("scoop install"))
+    );
     remove_path(&path);
 }
 
@@ -702,10 +854,25 @@ async fn apply_diff_async_choco_upgrade_success() {
         .insert("choco-pkg".to_string(), "1.0".to_string());
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, Some(&runner)).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        None,
+        Some(&runner),
+    )
+    .await;
     assert!(result);
     assert_eq!(state.chocolatey.get("choco-pkg"), Some(&"2.0".to_string()));
-    assert!(runner.commands().iter().any(|c| c.contains("choco upgrade")));
+    assert!(
+        runner
+            .commands()
+            .iter()
+            .any(|c| c.contains("choco upgrade"))
+    );
     remove_path(&path);
 }
 
@@ -726,10 +893,22 @@ async fn apply_diff_async_scoop_upgrade_success() {
         },
     );
     let mut state = State::default();
-    state.scoop.insert("scoop-pkg".to_string(), "1.0".to_string());
+    state
+        .scoop
+        .insert("scoop-pkg".to_string(), "1.0".to_string());
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, Some(&runner)).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        None,
+        Some(&runner),
+    )
+    .await;
     assert!(result);
     assert_eq!(state.scoop.get("scoop-pkg"), Some(&"3.0".to_string()));
     assert!(runner.commands().iter().any(|c| c.contains("scoop update")));
@@ -758,10 +937,25 @@ async fn apply_diff_async_choco_remove_success() {
         .insert("choco-pkg".to_string(), "1.0".to_string());
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, Some(&runner)).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        None,
+        Some(&runner),
+    )
+    .await;
     assert!(result);
     assert!(!state.chocolatey.contains_key("choco-pkg"));
-    assert!(runner.commands().iter().any(|c| c.contains("choco uninstall")));
+    assert!(
+        runner
+            .commands()
+            .iter()
+            .any(|c| c.contains("choco uninstall"))
+    );
     remove_path(&path);
 }
 
@@ -782,13 +976,30 @@ async fn apply_diff_async_scoop_remove_success() {
         },
     );
     let mut state = State::default();
-    state.scoop.insert("scoop-pkg".to_string(), "1.0".to_string());
+    state
+        .scoop
+        .insert("scoop-pkg".to_string(), "1.0".to_string());
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, Some(&runner)).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        None,
+        Some(&runner),
+    )
+    .await;
     assert!(result);
     assert!(!state.scoop.contains_key("scoop-pkg"));
-    assert!(runner.commands().iter().any(|c| c.contains("scoop uninstall")));
+    assert!(
+        runner
+            .commands()
+            .iter()
+            .any(|c| c.contains("scoop uninstall"))
+    );
     remove_path(&path);
 }
 
@@ -815,7 +1026,17 @@ async fn apply_diff_async_choco_upgrade_failure_stop_on_failure() {
         .insert("choco-pkg".to_string(), "1.0".to_string());
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, true, None, None, Some(&runner)).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        true,
+        None,
+        None,
+        Some(&runner),
+    )
+    .await;
     assert!(!result);
     remove_path(&path);
 }
@@ -826,15 +1047,14 @@ async fn apply_diff_async_choco_upgrade_failure_continues_on_failure() {
     let runner = MockCommandRunner::new();
     *runner.run_handler.lock().unwrap() = Some(Box::new(move |_: &str| {
         let n = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        if n == 0 {
-            1
-        } else {
-            0
-        }
+        if n == 0 { 1 } else { 0 }
     }));
 
     let diff = DiffResult {
-        to_upgrade: vec![spec("choco-fail", Some("2.0"), "chocolatey"), spec("choco-ok", Some("1.0"), "chocolatey")],
+        to_upgrade: vec![
+            spec("choco-fail", Some("2.0"), "chocolatey"),
+            spec("choco-ok", Some("1.0"), "chocolatey"),
+        ],
         ..Default::default()
     };
     let options = options(
@@ -855,7 +1075,17 @@ async fn apply_diff_async_choco_upgrade_failure_continues_on_failure() {
         .insert("choco-ok".to_string(), "1.0".to_string());
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, Some(&runner)).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        None,
+        Some(&runner),
+    )
+    .await;
     assert!(!result);
     assert_eq!(state.chocolatey.get("choco-ok"), Some(&"1.0".to_string()));
     remove_path(&path);
@@ -884,7 +1114,17 @@ async fn apply_diff_async_remove_failure_stop_on_failure() {
         .insert("choco-pkg".to_string(), "1.0".to_string());
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, true, None, None, Some(&runner)).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        true,
+        None,
+        None,
+        Some(&runner),
+    )
+    .await;
     assert!(!result);
     assert!(state.chocolatey.contains_key("choco-pkg"));
     remove_path(&path);
@@ -896,15 +1136,14 @@ async fn apply_diff_async_remove_failure_continues_on_failure() {
     let runner = MockCommandRunner::new();
     *runner.run_handler.lock().unwrap() = Some(Box::new(move |_: &str| {
         let n = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        if n == 0 {
-            1
-        } else {
-            0
-        }
+        if n == 0 { 1 } else { 0 }
     }));
 
     let diff = DiffResult {
-        to_remove: vec![spec("choco-fail", Some("1.0"), "chocolatey"), spec("choco-ok", Some("1.0"), "chocolatey")],
+        to_remove: vec![
+            spec("choco-fail", Some("1.0"), "chocolatey"),
+            spec("choco-ok", Some("1.0"), "chocolatey"),
+        ],
         ..Default::default()
     };
     let options = options(
@@ -925,7 +1164,17 @@ async fn apply_diff_async_remove_failure_continues_on_failure() {
         .insert("choco-ok".to_string(), "1.0".to_string());
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, Some(&runner)).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        None,
+        Some(&runner),
+    )
+    .await;
     assert!(!result);
     assert!(!state.chocolatey.contains_key("choco-ok"));
     remove_path(&path);
@@ -951,7 +1200,17 @@ async fn apply_diff_async_scoop_install_failure_stop_on_failure() {
     let mut state = State::default();
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, true, None, None, Some(&runner)).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        true,
+        None,
+        None,
+        Some(&runner),
+    )
+    .await;
     assert!(!result);
     assert!(!state.scoop.contains_key("scoop-pkg"));
     remove_path(&path);
@@ -963,15 +1222,14 @@ async fn apply_diff_async_scoop_upgrade_failure_continues_on_failure() {
     let runner = MockCommandRunner::new();
     *runner.run_handler.lock().unwrap() = Some(Box::new(move |_: &str| {
         let n = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        if n == 0 {
-            1
-        } else {
-            0
-        }
+        if n == 0 { 1 } else { 0 }
     }));
 
     let diff = DiffResult {
-        to_upgrade: vec![spec("scoop-fail", Some("2.0"), "scoop"), spec("scoop-ok", Some("1.0"), "scoop")],
+        to_upgrade: vec![
+            spec("scoop-fail", Some("2.0"), "scoop"),
+            spec("scoop-ok", Some("1.0"), "scoop"),
+        ],
         ..Default::default()
     };
     let options = options(
@@ -984,11 +1242,25 @@ async fn apply_diff_async_scoop_upgrade_failure_continues_on_failure() {
         },
     );
     let mut state = State::default();
-    state.scoop.insert("scoop-fail".to_string(), "1.0".to_string());
-    state.scoop.insert("scoop-ok".to_string(), "1.0".to_string());
+    state
+        .scoop
+        .insert("scoop-fail".to_string(), "1.0".to_string());
+    state
+        .scoop
+        .insert("scoop-ok".to_string(), "1.0".to_string());
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, Some(&runner)).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        None,
+        Some(&runner),
+    )
+    .await;
     assert!(!result);
     assert_eq!(state.scoop.get("scoop-ok"), Some(&"1.0".to_string()));
     remove_path(&path);
@@ -1013,16 +1285,30 @@ async fn apply_diff_async_scoop_buckets_already_added_skips() {
     let mut state = State::default();
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, Some(&runner)).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        None,
+        Some(&runner),
+    )
+    .await;
     assert!(result);
-    assert!(!runner
-        .commands()
-        .iter()
-        .any(|c| c.contains("scoop bucket add")));
-    assert!(!runner
-        .commands()
-        .iter()
-        .any(|c| c.contains("scoop bucket rm")));
+    assert!(
+        !runner
+            .commands()
+            .iter()
+            .any(|c| c.contains("scoop bucket add"))
+    );
+    assert!(
+        !runner
+            .commands()
+            .iter()
+            .any(|c| c.contains("scoop bucket rm"))
+    );
     remove_path(&path);
 }
 
@@ -1045,12 +1331,24 @@ async fn apply_diff_async_scoop_buckets_add_success_records_in_state() {
     let mut state = State::default();
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, Some(&runner)).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        None,
+        Some(&runner),
+    )
+    .await;
     assert!(result);
-    assert!(runner
-        .commands()
-        .iter()
-        .any(|c| c.contains("scoop bucket add extras")));
+    assert!(
+        runner
+            .commands()
+            .iter()
+            .any(|c| c.contains("scoop bucket add extras"))
+    );
     assert!(state.scoop_buckets.contains_key("extras"));
     remove_path(&path);
 }
@@ -1081,7 +1379,17 @@ async fn apply_diff_async_scoop_buckets_add_fails_reports_error() {
     let mut state = State::default();
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, Some(&runner)).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        None,
+        Some(&runner),
+    )
+    .await;
     assert!(!result);
     assert!(!state.scoop_buckets.contains_key("extras"));
     remove_path(&path);
@@ -1104,24 +1412,34 @@ async fn apply_diff_async_scoop_buckets_remove_orphans() {
         },
     );
     let mut state = State::default();
-    state
-        .scoop_buckets
-        .insert("extras".to_string(), None);
-    state
-        .scoop_buckets
-        .insert("versions".to_string(), None);
+    state.scoop_buckets.insert("extras".to_string(), None);
+    state.scoop_buckets.insert("versions".to_string(), None);
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, Some(&runner)).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        None,
+        Some(&runner),
+    )
+    .await;
     assert!(result);
-    assert!(runner
-        .commands()
-        .iter()
-        .any(|c| c.contains("scoop bucket rm extras")));
-    assert!(runner
-        .commands()
-        .iter()
-        .any(|c| c.contains("scoop bucket rm versions")));
+    assert!(
+        runner
+            .commands()
+            .iter()
+            .any(|c| c.contains("scoop bucket rm extras"))
+    );
+    assert!(
+        runner
+            .commands()
+            .iter()
+            .any(|c| c.contains("scoop bucket rm versions"))
+    );
     assert!(!state.scoop_buckets.contains_key("extras"));
     assert!(!state.scoop_buckets.contains_key("versions"));
     remove_path(&path);
@@ -1151,12 +1469,20 @@ async fn apply_diff_async_scoop_buckets_remove_fails_reports_error() {
         },
     );
     let mut state = State::default();
-    state
-        .scoop_buckets
-        .insert("extras".to_string(), None);
+    state.scoop_buckets.insert("extras".to_string(), None);
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, Some(&runner)).await;
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        None,
+        Some(&runner),
+    )
+    .await;
     assert!(!result);
     assert!(state.scoop_buckets.contains_key("extras"));
     remove_path(&path);
@@ -1186,6 +1512,8 @@ async fn apply_diff_async_on_output_called_for_install() {
         Some(&mock),
         None,
         None,
+        None,
+        false,
         Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
         None,
         None,
@@ -1225,6 +1553,8 @@ async fn apply_diff_async_on_error_called_for_failure() {
         None,
         None,
         None,
+        false,
+        None,
         Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
         None,
     )
@@ -1234,6 +1564,54 @@ async fn apply_diff_async_on_error_called_for_failure() {
     let msgs = error_messages.lock().unwrap();
     assert!(msgs.iter().any(|m| m.contains("Failed to install")));
     assert!(msgs.iter().any(|m| m.contains("fail-pkg")));
+    remove_path(&path);
+}
+
+#[tokio::test]
+async fn apply_diff_async_choco_invalid_id_build_error_calls_on_error() {
+    let diff = DiffResult {
+        to_install: vec![spec("bad id", Some("1.0"), "chocolatey")],
+        ..Default::default()
+    };
+    let options = options(
+        WingetOptions::default(),
+        ChocoOptions {
+            enable: true,
+            ..Default::default()
+        },
+        ScoopOptions::default(),
+    );
+    let mut state = State::default();
+    let path = temp_state_path();
+
+    let error_messages: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let msgs = error_messages.clone();
+
+    let result = apply_diff(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        Some(true),
+        None,
+        None,
+        false,
+        None,
+        Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
+        None,
+    )
+    .await;
+
+    assert!(!result);
+    assert!(!state.chocolatey.contains_key("bad id"));
+    let msgs = error_messages.lock().unwrap();
+    assert!(
+        msgs.iter().any(|m| m.contains("Failed to build command")),
+        "expected build-error callback, got: {msgs:?}"
+    );
     remove_path(&path);
 }
 
@@ -1264,6 +1642,8 @@ async fn apply_diff_async_on_output_called_for_upgrade() {
         Some(&mock),
         None,
         None,
+        None,
+        false,
         Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
         None,
         None,
@@ -1278,7 +1658,7 @@ async fn apply_diff_async_on_output_called_for_upgrade() {
 
 #[tokio::test]
 async fn apply_diff_async_on_output_called_for_remove() {
-    let mock_runner = MockCommandRunner::new();
+    let mock = MockWingetManager::new();
     let diff = DiffResult {
         to_remove: vec![spec("test-pkg", Some("1.0"), "winget")],
         ..Default::default()
@@ -1300,12 +1680,14 @@ async fn apply_diff_async_on_output_called_for_remove() {
         &mut state,
         &path,
         false,
+        Some(&mock),
         None,
         None,
         None,
+        false,
         Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
         None,
-        Some(&mock_runner),
+        None,
     )
     .await;
 
@@ -1313,4 +1695,257 @@ async fn apply_diff_async_on_output_called_for_remove() {
     let msgs = output_messages.lock().unwrap();
     assert!(msgs.iter().any(|m| m.contains("Removing")));
     remove_path(&path);
+}
+
+#[tokio::test]
+async fn apply_diff_apply_config_copies_files_and_updates_state() {
+    let dir = std::env::temp_dir().join(format!(
+        "ntix_exec_cfg_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("kitty.conf");
+    std::fs::write(&src, "font_size 12").unwrap();
+    let dest = dir.join("nested").join("dest").join("kitty.conf");
+
+    let entry = ntix_rs::models::config_file::ConfigFileEntry {
+        dest: dest.clone(),
+        src: src.clone(),
+    };
+    let mut diff = DiffResult::default();
+    diff.config_files_to_create.push(entry);
+
+    let options = empty_opts();
+    let mut state = State::default();
+    let path = temp_state_path();
+    let config = NTIXConfig::default();
+
+    let ok = apply_diff(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        Some(true),
+        Some(true),
+        Some(&config),
+        true,
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert!(ok);
+    let bytes = std::fs::read(&dest).unwrap();
+    assert_eq!(bytes, b"font_size 12");
+    assert!(
+        state
+            .config_files
+            .contains_key(&dest.to_string_lossy().to_string())
+    );
+    assert_eq!(
+        state
+            .config_files
+            .get(&dest.to_string_lossy().to_string())
+            .unwrap(),
+        &ntix_rs::hash::sha256_hex(b"font_size 12")
+    );
+
+    // The applied config file must be persisted to the state file on disk.
+    let persisted = ntix_rs::state_management::state_service::load_state(Some(&path))
+        .expect("state should be saved to disk");
+    assert_eq!(
+        persisted
+            .config_files
+            .get(&dest.to_string_lossy().to_string())
+            .map(|h| h.as_str()),
+        Some(ntix_rs::hash::sha256_hex(b"font_size 12").as_str())
+    );
+
+    remove_path(&path);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn apply_diff_apply_config_missing_source_calls_on_error() {
+    let dir = std::env::temp_dir().join(format!(
+        "ntix_exec_cfg_missing_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let missing_src = dir.join("does_not_exist.conf");
+    let dest = dir.join("nested").join("dest").join("t.conf");
+
+    let entry = ntix_rs::models::config_file::ConfigFileEntry {
+        dest: dest.clone(),
+        src: missing_src.clone(),
+    };
+    let mut diff = DiffResult::default();
+    diff.config_files_to_create.push(entry);
+
+    let options = empty_opts();
+    let mut state = State::default();
+    let path = temp_state_path();
+    let config = NTIXConfig::default();
+
+    let error_messages: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let msgs = error_messages.clone();
+
+    let ok = apply_diff(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        Some(true),
+        Some(true),
+        Some(&config),
+        true,
+        None,
+        Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
+        None,
+    )
+    .await;
+    assert!(ok);
+    let msgs = error_messages.lock().unwrap();
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("Failed to read config file source")),
+        "expected read-failure error, got: {msgs:?}"
+    );
+    assert!(
+        !state
+            .config_files
+            .contains_key(&dest.to_string_lossy().to_string())
+    );
+
+    remove_path(&path);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn apply_diff_apply_config_write_failure_calls_on_error() {
+    let dir = std::env::temp_dir().join(format!(
+        "ntix_exec_cfg_write_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("src.conf");
+    std::fs::write(&src, "content").unwrap();
+    // dest is an existing directory -> fs::write fails
+    let dest = dir.join("dest_dir");
+    std::fs::create_dir_all(&dest).unwrap();
+
+    let entry = ntix_rs::models::config_file::ConfigFileEntry {
+        dest: dest.clone(),
+        src: src.clone(),
+    };
+    let mut diff = DiffResult::default();
+    diff.config_files_to_create.push(entry);
+
+    let options = empty_opts();
+    let mut state = State::default();
+    let path = temp_state_path();
+    let config = NTIXConfig::default();
+
+    let error_messages: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let msgs = error_messages.clone();
+
+    let ok = apply_diff(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        Some(true),
+        Some(true),
+        Some(&config),
+        true,
+        None,
+        Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
+        None,
+    )
+    .await;
+    assert!(ok);
+    let msgs = error_messages.lock().unwrap();
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("Failed to write config file")),
+        "expected write-failure error, got: {msgs:?}"
+    );
+    assert!(
+        !state
+            .config_files
+            .contains_key(&dest.to_string_lossy().to_string())
+    );
+
+    remove_path(&path);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn apply_diff_apply_config_drops_orphans_keeps_file() {
+    let dir = std::env::temp_dir().join(format!(
+        "ntix_exec_orphan_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let orphan_file = dir.join("orphan.conf");
+    std::fs::write(&orphan_file, "keep me").unwrap();
+
+    let mut diff = DiffResult::default();
+    diff.config_files_no_longer_managed
+        .push(orphan_file.to_string_lossy().to_string());
+
+    let options = empty_opts();
+    let mut state = State::default();
+    state
+        .config_files
+        .insert(orphan_file.to_string_lossy().to_string(), "hash".into());
+    let path = temp_state_path();
+    let config = NTIXConfig::default();
+
+    let ok = apply_diff(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        Some(true),
+        Some(true),
+        Some(&config),
+        true,
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert!(ok);
+    assert!(orphan_file.is_file(), "orphan file must remain on disk");
+    assert!(state.config_files.is_empty());
+
+    remove_path(&path);
+    std::fs::remove_dir_all(&dir).unwrap();
 }

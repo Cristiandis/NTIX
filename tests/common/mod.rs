@@ -5,47 +5,9 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use ntix_rs::models::installed_packages::UpgradeInfo;
+use ntix_rs::models::options::WingetOptions;
 use ntix_rs::package_manager::command_runner::{CommandRunner, LineCallback};
-use ntix_rs::package_manager::manager_presence::ManagerPresence;
 use ntix_rs::package_manager::winget_manager_trait::WingetManagerTrait;
-
-/// Hand-rolled mock of `ManagerPresence`.
-pub struct MockManagerPresence {
-    pub chocolatey_installed: bool,
-    pub scoop_installed: bool,
-}
-
-impl MockManagerPresence {
-    pub fn new() -> Self {
-        Self {
-            chocolatey_installed: true,
-            scoop_installed: true,
-        }
-    }
-
-    pub fn with_choco(installed: bool) -> Self {
-        Self {
-            chocolatey_installed: installed,
-            scoop_installed: true,
-        }
-    }
-}
-
-impl Default for MockManagerPresence {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ManagerPresence for MockManagerPresence {
-    fn is_chocolatey_installed(&self) -> bool {
-        self.chocolatey_installed
-    }
-
-    fn is_scoop_installed(&self) -> bool {
-        self.scoop_installed
-    }
-}
 
 /// Hand-rolled mock of `CommandRunner`.
 pub struct MockCommandRunner {
@@ -124,8 +86,9 @@ pub struct MockWingetManager {
     pub install_per_id: Option<Vec<(String, bool)>>,
     pub uninstall_result: bool,
     pub upgrade_result: bool,
-    pub install_calls: Mutex<Vec<(String, Option<String>, bool, bool)>>,
+    pub install_calls: Mutex<Vec<(String, Option<String>, WingetOptions)>>,
     pub upgrade_calls: Mutex<usize>,
+    pub uninstall_calls: Mutex<usize>,
     pub package_exists_calls: Mutex<Vec<String>>,
     pub package_exists_error: Option<Box<dyn std::error::Error + Send + Sync>>,
     pub package_exists_by_id: Option<HashMap<String, bool>>,
@@ -145,6 +108,7 @@ impl MockWingetManager {
             upgrade_result: true,
             install_calls: Mutex::new(Vec::new()),
             upgrade_calls: Mutex::new(0),
+            uninstall_calls: Mutex::new(0),
             package_exists_calls: Mutex::new(Vec::new()),
             package_exists_error: None,
             package_exists_by_id: None,
@@ -158,6 +122,10 @@ impl MockWingetManager {
 
     pub fn upgrade_call_count(&self) -> usize {
         *self.upgrade_calls.lock().unwrap()
+    }
+
+    pub fn uninstall_call_count(&self) -> usize {
+        *self.uninstall_calls.lock().unwrap()
     }
 
     pub fn package_exists_call_count(&self) -> usize {
@@ -197,14 +165,14 @@ impl WingetManagerTrait for MockWingetManager {
         &self,
         id: &str,
         version: Option<&str>,
-        accept_agreements: bool,
-        silent: bool,
+        options: WingetOptions,
+        _on_output: Option<LineCallback<'_>>,
+        _on_error: Option<LineCallback<'_>>,
     ) -> bool {
         self.install_calls.lock().unwrap().push((
             id.to_string(),
             version.map(|s| s.to_string()),
-            accept_agreements,
-            silent,
+            options,
         ));
         if let Some(per_id) = &self.install_per_id {
             for (pid, result) in per_id {
@@ -216,12 +184,25 @@ impl WingetManagerTrait for MockWingetManager {
         self.install_result
     }
 
-    async fn uninstall(&self, id: &str, _accept_agreements: bool, _silent: bool) -> bool {
+    async fn uninstall(
+        &self,
+        id: &str,
+        _options: WingetOptions,
+        _on_output: Option<LineCallback<'_>>,
+        _on_error: Option<LineCallback<'_>>,
+    ) -> bool {
         let _ = id;
+        *self.uninstall_calls.lock().unwrap() += 1;
         self.uninstall_result
     }
 
-    async fn upgrade(&self, id: &str, _accept_agreements: bool, _silent: bool) -> bool {
+    async fn upgrade(
+        &self,
+        id: &str,
+        _options: WingetOptions,
+        _on_output: Option<LineCallback<'_>>,
+        _on_error: Option<LineCallback<'_>>,
+    ) -> bool {
         let _ = id;
         *self.upgrade_calls.lock().unwrap() += 1;
         self.upgrade_result
@@ -231,7 +212,10 @@ impl WingetManagerTrait for MockWingetManager {
         &self,
         id: &str,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        self.package_exists_calls.lock().unwrap().push(id.to_string());
+        self.package_exists_calls
+            .lock()
+            .unwrap()
+            .push(id.to_string());
         if self.package_exists_throw {
             return Err("network error".into());
         }

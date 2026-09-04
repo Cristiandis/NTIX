@@ -10,16 +10,19 @@ pub struct State {
     pub chocolatey: HashMap<String, String>,
     pub scoop: HashMap<String, String>,
     pub scoop_buckets: HashMap<String, Option<String>>,
+    #[serde(default)]
+    pub config_files: HashMap<String, String>,
 }
 
 impl Default for State {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: 2,
             winget: HashMap::new(),
             chocolatey: HashMap::new(),
             scoop: HashMap::new(),
             scoop_buckets: HashMap::new(),
+            config_files: HashMap::new(),
         }
     }
 }

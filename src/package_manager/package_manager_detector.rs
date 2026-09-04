@@ -8,19 +8,16 @@ use crate::models::installed_packages::InstalledPackages;
 use crate::models::installed_packages::UpgradeInfo;
 use crate::models::{ntix_config::NTIXConfig, options::NTIXOptions};
 use crate::package_manager::command_builder;
-use crate::package_manager::command_runner::CommandRunner;
-use crate::package_manager::manager_presence::ManagerPresence;
+use crate::package_manager::command_runner::{CREATE_NO_WINDOW, CommandRunner};
 use crate::package_manager::process_command_runner::ProcessCommandRunner;
 use crate::package_manager::winget_manager::WingetManager;
 use crate::package_manager::winget_manager_trait::WingetManagerTrait;
 
-const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-pub fn is_chocolatey_installed() -> bool {
+fn is_chocolatey_installed() -> bool {
     run_process("choco --version").is_some()
 }
 
-pub fn is_scoop_installed() -> bool {
+fn is_scoop_installed() -> bool {
     run_process("scoop --version").is_some()
 }
 
@@ -35,9 +32,10 @@ pub async fn validate_managers_async(
     options: &NTIXOptions,
     config: &NTIXConfig,
     winget_manager: Option<&dyn WingetManagerTrait>,
-    presence: Option<&dyn ManagerPresence>,
+    choco_installed: Option<bool>,
+    scoop_installed: Option<bool>,
 ) -> ValidationResult {
-    let (choco_installed, scoop_installed) = check_choco_scoop(presence);
+    let (choco_installed, scoop_installed) = check_choco_scoop(choco_installed, scoop_installed);
 
     let mut winget_installed = true;
     if options.winget.enable {
@@ -50,7 +48,13 @@ pub async fn validate_managers_async(
     }
 
     ValidationResult {
-        warnings: collect_warnings(options, config, winget_installed, choco_installed, scoop_installed),
+        warnings: collect_warnings(
+            options,
+            config,
+            winget_installed,
+            choco_installed,
+            scoop_installed,
+        ),
         winget_installed,
         choco_installed,
         scoop_installed,
@@ -60,9 +64,10 @@ pub async fn validate_managers_async(
 pub fn validate_managers(
     options: &NTIXOptions,
     config: &NTIXConfig,
-    presence: Option<&dyn ManagerPresence>,
+    choco_installed: Option<bool>,
+    scoop_installed: Option<bool>,
 ) -> ValidationResult {
-    let (choco_installed, scoop_installed) = check_choco_scoop(presence);
+    let (choco_installed, scoop_installed) = check_choco_scoop(choco_installed, scoop_installed);
 
     ValidationResult {
         warnings: collect_warnings(options, config, true, choco_installed, scoop_installed),
@@ -72,15 +77,13 @@ pub fn validate_managers(
     }
 }
 
-fn check_choco_scoop(
-    presence: Option<&dyn ManagerPresence>,
-) -> (bool, bool) {
-    let choco_installed = match presence {
-        Some(p) => p.is_chocolatey_installed(),
+fn check_choco_scoop(choco_override: Option<bool>, scoop_override: Option<bool>) -> (bool, bool) {
+    let choco_installed = match choco_override {
+        Some(v) => v,
         None => is_chocolatey_installed(),
     };
-    let scoop_installed = match presence {
-        Some(p) => p.is_scoop_installed(),
+    let scoop_installed = match scoop_override {
+        Some(v) => v,
         None => is_scoop_installed(),
     };
     (choco_installed, scoop_installed)
@@ -124,6 +127,11 @@ fn collect_warnings(
             .push("[warn] Scoop packages declared but scoop not enabled in options".to_string());
     }
 
+    if !config.winget_packages.is_empty() && !options.winget.enable {
+        warnings
+            .push("[warn] Winget packages declared but winget not enabled in options".to_string());
+    }
+
     warnings
 }
 
@@ -148,7 +156,9 @@ pub async fn get_installed_packages_async(
         }
     }
 
-    let choco_out = cmd.run_output("choco list -r --local-only --limit-output 2>nul", true).await;
+    let choco_out = cmd
+        .run_output("choco list -r --local-only --limit-output 2>nul", true)
+        .await;
     if !choco_out.is_empty() {
         let regex = Regex::new(r"(?m)^([^|]+)\|([^|]+)$").unwrap();
         for cap in regex.captures_iter(&choco_out) {
@@ -190,10 +200,7 @@ pub async fn get_winget_upgradable_packages_async(
     winget_manager: Option<&dyn WingetManagerTrait>,
 ) -> HashMap<String, UpgradeInfo> {
     let manager: &dyn WingetManagerTrait = winget_manager.unwrap_or(&WingetManager);
-    manager
-        .get_upgradable_packages()
-        .await
-        .unwrap_or_default()
+    manager.get_upgradable_packages().await.unwrap_or_default()
 }
 
 pub async fn get_choco_upgradable_packages_async(
@@ -202,7 +209,9 @@ pub async fn get_choco_upgradable_packages_async(
     let cmd: &dyn CommandRunner = runner.unwrap_or(&ProcessCommandRunner);
 
     let mut result = HashMap::new();
-    let output = cmd.run_output("choco outdated --limit-output 2>nul", true).await;
+    let output = cmd
+        .run_output("choco outdated --limit-output 2>nul", true)
+        .await;
     if output.is_empty() {
         return result;
     }
@@ -232,17 +241,22 @@ pub async fn get_scoop_upgradable_packages_async(
     }
 
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(&output)
-        && let Some(items) = value.as_array() {
-            for item in items {
-                let id = item.get("name").and_then(|v| v.as_str());
-                let cur = item.get("current_version").and_then(|v| v.as_str());
-                let avail = item.get("latest_version").and_then(|v| v.as_str());
-                if let (Some(id), Some(cur), Some(avail)) = (id, cur, avail)
-                    && !id.is_empty() && !cur.is_empty() && !avail.is_empty() && cur != avail {
-                        result.insert(id.to_string(), UpgradeInfo::new(cur, avail));
-                    }
+        && let Some(items) = value.as_array()
+    {
+        for item in items {
+            let id = item.get("name").and_then(|v| v.as_str());
+            let cur = item.get("current_version").and_then(|v| v.as_str());
+            let avail = item.get("latest_version").and_then(|v| v.as_str());
+            if let (Some(id), Some(cur), Some(avail)) = (id, cur, avail)
+                && !id.is_empty()
+                && !cur.is_empty()
+                && !avail.is_empty()
+                && cur != avail
+            {
+                result.insert(id.to_string(), UpgradeInfo::new(cur, avail));
             }
         }
+    }
 
     result
 }
@@ -291,7 +305,7 @@ pub async fn validate_choco_packages_exist_async(
 
     let tasks = ids.iter().map(|id| async move {
         let exists = validate_choco_package_exists_async(id, cmd).await;
-        (id.to_lowercase(), exists)
+        (id.clone(), exists)
     });
 
     futures::future::join_all(tasks).await.into_iter().collect()
@@ -305,7 +319,7 @@ pub async fn validate_scoop_packages_exist_async(
 
     let tasks = ids.iter().map(|id| async move {
         let exists = validate_scoop_package_exists_async(id, cmd).await;
-        (id.to_lowercase(), exists)
+        (id.clone(), exists)
     });
 
     futures::future::join_all(tasks).await.into_iter().collect()

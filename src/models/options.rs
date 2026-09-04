@@ -2,7 +2,8 @@
 pub struct WingetOptions {
     pub enable: bool,
     pub accept_agreement: bool,
-    pub interactive: bool,
+    pub silent: bool,
+    pub disable_interactivity: bool,
 }
 
 #[derive(Debug, Clone, Default)]

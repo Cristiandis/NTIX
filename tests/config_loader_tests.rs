@@ -6,11 +6,8 @@ use ntix_rs::config::config_loader::ensure_default_config;
 
 /// Creates a temp dir (unique per call) and returns its path.
 fn temp_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "ntix_test_{}_{}",
-        std::process::id(),
-        uuid_short()
-    ));
+    let dir =
+        std::env::temp_dir().join(format!("ntix_test_{}_{}", std::process::id(), uuid_short()));
     fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -31,13 +28,18 @@ fn placeholder_config_path(dir: &std::path::Path) -> PathBuf {
     path
 }
 
+/// Escapes a filesystem path for safe embedding inside a Lua string literal.
+fn lua_escape(p: &std::path::Path) -> String {
+    p.to_string_lossy().replace('\\', "\\\\")
+}
+
 #[test]
 fn load_from_string_valid_config_returns_ntix_config() {
     let dir = temp_dir();
     let path = placeholder_config_path(&dir);
     let lua = r#"
         options = {
-            winget = { enable = true, acceptAgreements = true, interactive = false },
+            winget = { enable = true, acceptAgreements = true, silent = true, disableInteractivity = true },
             chocolatey = { enable = true, yes = true },
             scoop = { enable = true, buckets = { "main", "extras" } }
         }
@@ -60,7 +62,7 @@ fn load_from_string_valid_config_returns_ntix_config() {
 }
 
 #[test]
-fn load_from_string_missing_interactive_field_defaults_to_false() {
+fn load_from_string_missing_winget_flags_default_to_false() {
     let dir = temp_dir();
     let path = placeholder_config_path(&dir);
     let lua = r#"
@@ -79,7 +81,8 @@ fn load_from_string_missing_interactive_field_defaults_to_false() {
 
     let config = config_loader::load_from_string(lua, path).unwrap();
     assert!(config.options.winget.enable);
-    assert!(!config.options.winget.interactive);
+    assert!(!config.options.winget.silent);
+    assert!(!config.options.winget.disable_interactivity);
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -106,7 +109,10 @@ fn load_from_string_missing_options_table_throws() {
 
     let err = config_loader::load_from_string(lua, path).unwrap_err();
     let msg = err.to_string();
-    assert!(msg.contains("missing top-level 'options' table"), "got: {msg}");
+    assert!(
+        msg.contains("missing top-level 'options' table"),
+        "got: {msg}"
+    );
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -178,12 +184,61 @@ fn load_from_string_with_import_single_file_merges_options_and_packages() {
     assert!(config.options.chocolatey.yes);
 
     assert_eq!(config.winget_packages.len(), 2);
-    let winget_ids: Vec<&str> = config.winget_packages.iter().map(|p| p.id.as_str()).collect();
+    let winget_ids: Vec<&str> = config
+        .winget_packages
+        .iter()
+        .map(|p| p.id.as_str())
+        .collect();
     assert!(winget_ids.contains(&"Microsoft.VisualStudioCode"));
     assert!(winget_ids.contains(&"Git.Git"));
 
     assert_eq!(config.choco_packages.len(), 1);
     assert_eq!(config.choco_packages[0].id, "git");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn load_from_string_with_import_and_inline_tables_merges_both() {
+    let dir = temp_dir();
+    let base_config = r#"
+        return {
+            options = {
+                winget = { acceptAgreements = true }
+            },
+            pkgs = {
+                winget = { "Microsoft.VisualStudioCode" }
+            }
+        }
+    "#;
+    fs::write(dir.join("base.lua"), base_config).unwrap();
+
+    let main_config = r#"
+        import("base.lua")
+        return {
+            options = {
+                winget = { enable = true }
+            },
+            pkgs = {
+                winget = { "Git.Git" }
+            }
+        }
+    "#;
+    let main_path = dir.join("main.lua");
+    fs::write(&main_path, "return {}").unwrap();
+
+    let config = config_loader::load_from_string(main_config, main_path).unwrap();
+
+    assert!(config.options.winget.enable);
+    assert!(config.options.winget.accept_agreement);
+
+    let ids: Vec<&str> = config
+        .winget_packages
+        .iter()
+        .map(|p| p.id.as_str())
+        .collect();
+    assert_eq!(ids.len(), 2);
+    assert!(ids.contains(&"Microsoft.VisualStudioCode"));
+    assert!(ids.contains(&"Git.Git"));
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -236,7 +291,11 @@ fn load_from_string_with_import_nested_imports_merge_correctly() {
     assert!(config.options.winget.enable);
 
     assert_eq!(config.winget_packages.len(), 2);
-    let ids: Vec<&str> = config.winget_packages.iter().map(|p| p.id.as_str()).collect();
+    let ids: Vec<&str> = config
+        .winget_packages
+        .iter()
+        .map(|p| p.id.as_str())
+        .collect();
     assert!(ids.contains(&"Base.Package"));
     assert!(ids.contains(&"Extended.Package"));
     fs::remove_dir_all(&dir).unwrap();
@@ -280,7 +339,11 @@ fn load_from_string_with_import_package_deduplication_by_id() {
     let config = config_loader::load_from_string(main_config, main_path).unwrap();
 
     assert_eq!(config.winget_packages.len(), 3);
-    let ids: Vec<&str> = config.winget_packages.iter().map(|p| p.id.as_str()).collect();
+    let ids: Vec<&str> = config
+        .winget_packages
+        .iter()
+        .map(|p| p.id.as_str())
+        .collect();
     assert!(ids.contains(&"Unique.Package"));
     assert!(ids.contains(&"Another.Unique"));
 
@@ -334,7 +397,7 @@ fn load_from_string_with_import_deep_merge_options_preserves_nested_keys() {
                 winget = {
                     enable = true,
                     acceptAgreements = true,
-                    interactive = false
+                    disableInteractivity = false
                 },
                 scoop = {
                     enable = true,
@@ -349,7 +412,7 @@ fn load_from_string_with_import_deep_merge_options_preserves_nested_keys() {
     let main_config = r#"
         import("base.lua")
         -- Modify global options table
-        options.winget.interactive = true
+        options.winget.disableInteractivity = true
         options.scoop.buckets = { "main", "extras" }
         return { options = options, pkgs = pkgs }
     "#;
@@ -359,7 +422,7 @@ fn load_from_string_with_import_deep_merge_options_preserves_nested_keys() {
     let config = config_loader::load_from_string(main_config, main_path).unwrap();
     assert!(config.options.winget.enable);
     assert!(config.options.winget.accept_agreement);
-    assert!(config.options.winget.interactive);
+    assert!(config.options.winget.disable_interactivity);
     assert!(config.options.scoop.enable);
     let bucket_names: Vec<&str> = config
         .options
@@ -510,16 +573,15 @@ fn load_from_string_import_invalid_arg_throws() {
 }
 
 #[test]
-fn ensure_default_config_null_path_creates_file() {
+fn ensure_default_config_explicit_missing_path_not_created() {
     let dir = temp_dir();
     let config_path = dir.join("config.lua");
 
     let result = ensure_default_config(Some(config_path.clone()));
-    assert!(result.file_name().unwrap().to_string_lossy().ends_with("config.lua"));
-    assert!(result.is_file());
-    let content = fs::read_to_string(&result).unwrap();
-    assert!(content.contains("options"));
-    assert!(content.contains("pkgs"));
+    assert_eq!(result, config_path);
+    // An explicit, non-existent path is returned untouched and is NOT
+    // auto-created; loading it later should report "config not found".
+    assert!(!config_path.exists());
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -629,7 +691,188 @@ fn load_from_string_choco_options_all_flags() {
     assert!(config.options.chocolatey.ignore_dependencies);
     assert!(config.options.chocolatey.allow_downgrade);
     assert!(config.options.chocolatey.skip_power_shell);
-    assert_eq!(config.options.chocolatey.params, Some("/params".to_string()));
+    assert_eq!(
+        config.options.chocolatey.params,
+        Some("/params".to_string())
+    );
     assert!(config.options.chocolatey.pre);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn load_config_files_parses_dest_keyed_entries() {
+    let dir = temp_dir();
+    let src = dir.join("conf.d");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("kitty.conf"), "font_size 11").unwrap();
+
+    let dest = src
+        .parent()
+        .unwrap()
+        .join("dest")
+        .join("kitty.conf")
+        .to_string_lossy()
+        .to_string();
+
+    let lua = format!(
+        r#"
+        options = {{}}
+        pkgs = {{}}
+        configFiles = {{ ["{dest}"] = "conf.d/kitty.conf" }}
+        return {{ options = options, pkgs = pkgs, configFiles = configFiles }}
+    "#,
+        dest = lua_escape(&std::path::Path::new(&dest))
+    );
+    let path = placeholder_config_path(&dir);
+    let config = config_loader::load_from_string(&lua, path).unwrap();
+    assert_eq!(config.config_files.len(), 1);
+    let entry = &config.config_files[0];
+    assert_eq!(entry.dest, std::path::PathBuf::from(&dest));
+    assert_eq!(entry.src, src.join("kitty.conf"));
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn load_config_files_absolute_src_is_used_as_is() {
+    let dir = temp_dir();
+    let abs_src = dir.join("abs.conf");
+    fs::write(&abs_src, "x=1").unwrap();
+
+    let dest = dir
+        .join("dest")
+        .join("abs.conf")
+        .to_string_lossy()
+        .to_string();
+    let lua = format!(
+        r#"
+        options = {{}}
+        pkgs = {{}}
+        configFiles = {{ ["{dest}"] = "{src}" }}
+        return {{ options = options, pkgs = pkgs, configFiles = configFiles }}
+    "#,
+        dest = lua_escape(&std::path::Path::new(&dest)),
+        src = lua_escape(&abs_src)
+    );
+    let path = placeholder_config_path(&dir);
+    let config = config_loader::load_from_string(&lua, path).unwrap();
+    assert_eq!(config.config_files.len(), 1);
+    assert_eq!(config.config_files[0].src, abs_src);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn load_config_files_relative_dest_errors() {
+    let dir = temp_dir();
+    let src = dir.join("x.conf");
+    fs::write(&src, "x=1").unwrap();
+
+    let lua = r#"
+        options = {}
+        pkgs = {}
+        configFiles = { ["relative/path.conf"] = "x.conf" }
+        return { options = options, pkgs = pkgs, configFiles = configFiles }
+    "#;
+    let path = placeholder_config_path(&dir);
+    let err = config_loader::load_from_string(lua, path).unwrap_err();
+    assert!(
+        format!("{err}").contains("absolute"),
+        "expected absolute-path error, got: {err}"
+    );
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn load_config_files_missing_src_errors() {
+    let dir = temp_dir();
+    let dest = dir
+        .join("dest")
+        .join("nope.conf")
+        .to_string_lossy()
+        .to_string();
+    let lua = format!(
+        r#"
+        options = {{}}
+        pkgs = {{}}
+        configFiles = {{ ["{dest}"] = "does_not_exist.conf" }}
+        return {{ options = options, pkgs = pkgs, configFiles = configFiles }}
+    "#,
+        dest = lua_escape(&std::path::Path::new(&dest))
+    );
+    let path = placeholder_config_path(&dir);
+    let err = config_loader::load_from_string(&lua, path).unwrap_err();
+    assert!(
+        format!("{err}").contains("not found"),
+        "expected missing source error, got: {err}"
+    );
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn load_config_files_from_import_merges() {
+    let dir = temp_dir();
+    let base_dir = dir.join("base");
+    fs::create_dir_all(&base_dir).unwrap();
+    let base_src = base_dir.join("base.conf");
+    fs::write(&base_src, "base=1").unwrap();
+    let base_dest = dir
+        .join("dest")
+        .join("base.conf")
+        .to_string_lossy()
+        .to_string();
+
+    fs::write(
+        base_dir.join("base.lua"),
+        format!(
+            r#"
+            options = options
+            pkgs = {{}}
+            configFiles = {{ ["{dest}"] = "{src}" }}
+            return {{ options = options, pkgs = pkgs, configFiles = configFiles }}
+        "#,
+            dest = lua_escape(&std::path::Path::new(&base_dest)),
+            src = lua_escape(&base_src)
+        ),
+    )
+    .unwrap();
+
+    let lua = r#"
+        options = {}
+        pkgs = {}
+        import("base/base.lua")
+        return { options = options, pkgs = pkgs, configFiles = configFiles }
+    "#;
+    let path = placeholder_config_path(&dir);
+    let config = config_loader::load_from_string(lua, path).unwrap();
+    assert_eq!(config.config_files.len(), 1);
+    assert_eq!(
+        config.config_files[0].dest,
+        std::path::PathBuf::from(base_dest)
+    );
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn load_config_files_src_not_string_errors() {
+    let dir = temp_dir();
+    let dest = dir
+        .join("dest")
+        .join("x.conf")
+        .to_string_lossy()
+        .to_string();
+    let lua = format!(
+        r#"
+        options = {{}}
+        pkgs = {{}}
+        configFiles = {{ ["{dest}"] = 123 }}
+        return {{ options = options, pkgs = pkgs, configFiles = configFiles }}
+    "#,
+        dest = lua_escape(&std::path::Path::new(&dest))
+    );
+    let path = placeholder_config_path(&dir);
+    let err = config_loader::load_from_string(&lua, path).unwrap_err();
+    assert!(
+        format!("{err}").contains("must be a source path string"),
+        "expected source-must-be-string error, got: {err}"
+    );
     fs::remove_dir_all(&dir).unwrap();
 }
