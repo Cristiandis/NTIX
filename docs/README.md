@@ -16,6 +16,8 @@ NTIX manages packages across **three** Windows package managers from a single de
 
 Write a Lua config file, run `ntix diff` to preview changes, then `ntix apply` to install, upgrade, or remove packages. NTIX tracks what it manages and cleans up orphans automatically.
 
+NTIX can also manage arbitrary config files - dotfiles, settings, and app configs - declaratively. Declare them under `configFiles` and let NTIX create and update them like a mini Home Manager.
+
 ### Support the Project
 
 If you find this useful, here are a few ways to help out - pick whichever fits:

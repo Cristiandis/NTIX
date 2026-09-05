@@ -19,8 +19,9 @@ If no path is provided, NTIX uses `~/ntix/config.lua` (creating it on first run)
 | Flag                | Short | Description                                      |
 | ------------------- | ----- | ------------------------------------------------ |
 | `--dry-run`         | `-d`  | Preview without applying                        |
-| `--upgrade`         | `-u`  | Check for and apply available upgrades           |
 | `--adopt`           | `-a`  | Adopt already-installed packages into NTIX state |
+| `--upgrade`         | `-u`  | Check for and apply available upgrades           |
+| `--apply-configs`   | `-c`  | Apply `configFiles` declared in the config       |
 | `--no-gc`           |       | Skip orphan removal                             |
 | `--stop-on-failure` |       | Halt on first failure                           |
 
@@ -36,6 +37,9 @@ By default, `apply` does **not** check for upgrades - it only installs missing p
 6. Upgrades packages (only with `-u`)
 7. Removes orphaned packages (unless `--no-gc`)
 8. Adopts installed packages into state (only with `-a`)
-9. Updates the state file after each operation
+9. Applies `configFiles` (only with `-c`)
+10. Updates the state file after each operation
 
 Orphaned packages are removed automatically. Use `--no-gc` to skip.
+
+If a manager exits nonzero but the package is in the desired state (for example winget reports an install as "already installed"), `apply` verifies against the installed-package list and treats the outcome as successful. The same check confirms a removal when a package was already gone.

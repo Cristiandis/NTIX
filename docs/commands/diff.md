@@ -14,10 +14,11 @@ If no path is provided, NTIX uses `~/ntix/config.lua` (creating it on first run)
 
 ### Options
 
-| Flag          | Short | Description                                      |
-| ------------- | ----- | ------------------------------------------------ |
-| `--upgrade`   | `-u`  | Check for and show available upgrades            |
-| `--adopt`     | `-a`  | Show packages that would be adopted into state   |
+| Flag            | Short | Description                                      |
+| --------------- | ----- | ------------------------------------------------ |
+| `--upgrade`     | `-u`  | Check for and show available upgrades            |
+| `--adopt`       | `-a`  | Show packages that would be adopted into state   |
+| `--apply-configs`| `-c`  | Show `configFiles` actions (new / update / orphan) |
 
 By default, `diff` does **not** check for upgrades - it only shows installs, removals, and packages already at the desired version. Pass `-u` to include upgrade detection.
 
@@ -30,11 +31,13 @@ NTIX renders a tree with section headers, color-coded by action.
 | imports | `imports` | Dim | Imported config files |
 | **To install** | `↑` | Green | Packages not yet installed |
 | **To upgrade** | `↑` | Yellow | Unpinned packages with newer version (only with `-u`) |
-| **To adopt** | `✚` | Cyan | Installed packages not yet in state (only with `-a`) |
+| **To adopt** | `✚` | Cyan | Installed packages that would be added to state (only with `-a`) |
+| **Installed, not managed** | `✓` | Dim | Installed packages NTIX does not track (informational) |
 | **Already managed** | `✓` | Dim | Packages at the correct version |
 | **Buckets to add** | `↑` | Green | Scoop buckets to add (only when scoop is enabled) |
 | **Buckets to remove** | `↓` | Red | Scoop buckets to remove |
 | **Orphans** | `✗` | Red | Orphaned packages to clean up |
+| **Config files** | `⚑` | White | Managed files: `[new]` green, `[update]` yellow, `[orphan]` red (only with `-c`) |
 
 Manager names are colored: winget (purple), chocolatey (blue), scoop (pink).
 

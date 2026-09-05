@@ -12,8 +12,10 @@ All commands take a config file path as their primary argument:
 ntix <command> <config-path> [options]
 ```
 
+Print the version with `ntix --version` (or `-V`); the version is also shown in the header of `ntix --help`.
+
 ### Global behavior
 
-* **Validation**: NTIX validates that packages exist in their respective managers before listing them. Non-existent packages are removed from the diff with a warning.
+* **Validation**: NTIX validates that new packages exist in their respective managers before listing them. Packages confirmed not to exist are removed from the diff with a warning; packages that could not be verified are kept but flagged with a warning.
 * **Colors**: Output is color-coded - green for install, yellow for upgrade, cyan for adopt, red for remove. Package managers are colored: purple for winget, blue for chocolatey, pink for scoop.
 * **Warnings** are yellow, **errors** are red.

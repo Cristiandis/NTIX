@@ -38,42 +38,42 @@ Or run the built binary directly:
 cargo test
 ```
 
-The test suite has 223 tests covering config loading, diff computation, execution, state management, locking, command building, package manager detection, table parsing, and the real `cmd.exe` command runner.
+The test suite has 245 tests covering config loading, diff computation, execution, state management, locking, command building, package manager detection, table parsing, and the real `cmd.exe` command runner.
 
 ### Project structure
 
 ```
 NTIX/
 ├── src/
-│   ├── main.rs                 CLI entry point (clap subcommands)
+│   ├── main.rs                 CLI entry point (clap subcommands, version in help)
 │   ├── commands.rs             CLI command handlers and diff rendering
 │   ├── lib.rs                  Crate root, public modules
-│   ├── config/                 Lua config loading (mlua)
-│   ├── diff/                   Diff computation
-│   ├── execution/              Package execution
+│   ├── config/                 Lua config loading (mlua), incl. config files
+│   ├── diff/                   Diff computation (packages + config files)
+│   ├── execution/              Package execution and config-file application
 │   ├── lock/                   File locking
 │   ├── models/                 Data models, options, and config structs
-│   ├── package_manager/        Package manager traits, detection, command building
+│   ├── package_manager/        Per-manager ops (winget/choco/scoop), command building, table parsing, detection
 │   ├── state_management/       State persistence
 │   ├── paths.rs                Default paths
-│   └── process_helper.rs       Admin / token membership checks
+│   ├── process_helper.rs       Admin / token membership checks
+│   └── hash.rs                 File content hashing
 └── tests/                      Integration tests (one file per module)
 ```
 
 ### CI
 
-GitHub Actions runs on every push and pull request to `master`:
+GitHub Actions runs on pull requests to `master`:
 
-1. Build for `x86_64-pc-windows-gnu` and cross-build for `aarch64-pc-windows-msvc`
-2. Run the test suite on `x86_64-pc-windows-gnu`
-3. Generate code coverage with `cargo-llvm-cov` on `x86_64-pc-windows-msvc`
-4. Upload coverage to Codecov
+1. Build and run the test suite for `x86_64-pc-windows-gnu` (mingw)
+2. Generate code coverage with `cargo llvm-cov` on `x86_64-pc-windows-msvc`
+3. Upload coverage to Codecov
 
-Releases are produced with `cargo-dist`, building ZIP and MSI artifacts for both targets and publishing the Scoop bucket manifest on tag.
+Releases are produced with `cargo-dist`, building ZIP and MSI artifacts and publishing the Scoop bucket manifest on tag.
 
 ### License
 
-GPLv3. See [LICENSE](https://github.com/Cristiandis/NTIX/blob/master/LICENSE).
+LGPLv2.1. See [LICENSE](https://github.com/Cristiandis/NTIX/blob/master/LICENSE).
 
 Branding assets are CC BY 4.0. See [branding/LICENSE](https://github.com/Cristiandis/NTIX/blob/master/branding/LICENSE).
 

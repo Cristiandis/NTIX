@@ -24,15 +24,17 @@ Each field defaults to a fully disabled (`Default`) value unless configured.
 pub struct WingetOptions {
     pub enable: bool,
     pub accept_agreement: bool,
-    pub interactive: bool,
+    pub silent: bool,
+    pub disable_interactivity: bool,
 }
 ```
 
 | Field | Config key | Type | Default | Description |
 |-------|-----------|------|---------|-------------|
 | `enable` | `enable` | `bool` | `false` | Enable winget support |
-| `accept_agreement` | `acceptAgreements` | `bool` | `false` | Auto-accept license agreements |
-| `interactive` | `interactive` | `bool` | `false` | Show installer UI |
+| `accept_agreement` | `acceptAgreements` | `bool` | `false` | Auto-accept source/license agreements |
+| `silent` | `silent` | `bool` | `false` | Pass `--silent` |
+| `disable_interactivity` | `disableInteractivity` | `bool` | `false` | Pass `--disable-interactivity` |
 
 ### ChocoOptions
 

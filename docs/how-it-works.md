@@ -44,14 +44,17 @@ Compares the desired state (config) against the current state (installed package
 | `to_install` | Packages in config but not yet installed (or version mismatch) |
 | `to_upgrade` | Unpinned packages with a newer version available (only with `--upgrade`) |
 | `to_adopt` | Installed packages not yet tracked by NTIX (only with `--adopt`) |
+| `to_untracked` | Installed packages not tracked by NTIX (informational only) |
 | `to_skip` | Packages already at the desired version |
 | `to_remove` | Packages tracked by NTIX but no longer in config (orphans) |
 | `buckets_to_add` | Scoop buckets configured but not present on the system |
 | `buckets_to_remove` | Scoop buckets tracked by NTIX but no longer configured |
 
+Config-file actions (`config_files_to_create`, `config_files_to_update`, `config_files_no_longer_managed`) are computed separately, only when the caller opts in with `-c`/`--apply-configs`.
+
 In addition, `warnings` collects non-fatal notes such as a manager being enabled but not installed, or a package that could not be verified.
 
-Before listing packages, NTIX validates that they exist in their respective managers. Invalid packages are removed from `to_install` and added to `warnings`.
+Before listing packages, NTIX validates that they exist in their respective managers. A package **confirmed not to exist** is removed from `to_install` and added to `warnings`; a package that **cannot be verified** (for example a failed search query) is kept in `to_install` but flagged with a warning.
 
 ### State Management
 
@@ -59,11 +62,12 @@ NTIX tracks what it manages in a JSON state file at `%LOCALAPPDATA%/ntix/state.j
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "winget": { "Google.Chrome": "latest", "7zip.7zip": "23.01" },
   "chocolatey": { "ripgrep": "latest" },
   "scoop": { "fd": "latest", "bat": "latest" },
-  "scoopBuckets": { "main": null }
+  "scoopBuckets": { "main": null },
+  "configFiles": { "C:/Users/you/.gitconfig": "9f86d081884c7d65..." }
 }
 ```
 
@@ -71,6 +75,7 @@ NTIX tracks what it manages in a JSON state file at `%LOCALAPPDATA%/ntix/state.j
 * **Orphan detection** - packages in the state file but not in the config are marked for removal
 * **Retry logic** - file writes retry (with linear backoff) up to 3 times on failure
 * **Scoop buckets** - buckets added by NTIX are recorded under `scoopBuckets`
+* **Config files** - managed files are recorded under `configFiles`, keyed by destination path and valued by content hash
 
 ### Lock File
 

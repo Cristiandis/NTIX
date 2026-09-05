@@ -11,6 +11,7 @@ Windows developers often use a mix of package managers, like winget for Microsof
 NTIX unifies them under one config:
 
 * **One config file** describes all your packages across all managers
+* **Config file management** lets you manage dotfiles and app settings declaratively
 * **Diff preview** shows exactly what will change before you commit
 * **State tracking** remembers what NTIX installed so it can clean up orphans
 * **Pinned versions** keep critical packages at specific versions
@@ -29,9 +30,9 @@ flowchart LR
     E --> H[state.json]
 ```
 
-1. **ConfigLoader** reads your Lua config and parses options + packages
-2. **DiffEngine** compares your config against the current state (installed packages + NTIX state file)
-3. **ExecutionEngine** applies the diff - installing, upgrading, or removing packages as needed
+1. **ConfigLoader** reads your Lua config and parses options, packages, and config files
+2. **DiffEngine** compares your config against the current state (installed packages + NTIX state file), including config-file actions
+3. **ExecutionEngine** applies the diff - installing, upgrading, or removing packages, and creating or updating config files
 4. **StateService** persists what was done so the next run knows what NTIX manages
 
 ### Package managers

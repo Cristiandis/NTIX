@@ -21,7 +21,13 @@ cd NTIX
 cargo build --release
 ```
 
-The release artifacts (ZIP and MSI for both x64 and arm64) are built by `cargo-dist`. The binary is at `target/x86_64-pc-windows-gnu/release/ntix.exe`.
+The release artifacts (ZIP and MSI) are built by `cargo-dist`. The binary is at `target/x86_64-pc-windows-gnu/release/ntix.exe`.
+
+Verify the install:
+
+```bash
+ntix --version
+```
 {% endstep %}
 
 {% step %}
@@ -97,5 +103,6 @@ NTIX will install all listed packages and create a state file to track what it m
 ### What's next?
 
 * Pin specific versions to keep critical packages stable
+* Manage config files (dotfiles, settings) with `configFiles`
 * Set up multiple environments for work and personal use
 * Learn about the diff output colors and sections

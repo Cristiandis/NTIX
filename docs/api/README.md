@@ -21,23 +21,25 @@ Key dependencies: `mlua` (embedded Lua 5.4), `tokio`, `clap`, `serde_json`, `reg
 | `ntix_rs::diff` | Diff computation (desired vs current state) |
 | `ntix_rs::execution` | Package install/upgrade/remove execution |
 | `ntix_rs::state_management` | State file persistence |
-| `ntix_rs::package_manager` | Package manager abstraction and detection |
+| `ntix_rs::package_manager` | Per-manager operations (`winget_ops`, `choco_ops`, `scoop_ops`), command building, table parsing, detection |
 | `ntix_rs::lock` | Concurrent execution locking |
 | `ntix_rs::paths` | Default paths (`%LOCALAPPDATA%/ntix`) |
 | `ntix_rs::process_helper` | Admin / token membership checks |
+| `ntix_rs::hash` | File content hashing (config-file tracking) |
 
 ### Key Types
 
 | Type | Description |
 |------|-------------|
-| `NTIXConfig` | Parsed config (options + package lists + import tree) |
+| `NTIXConfig` | Parsed config (options + package lists + config files + import tree) |
 | `NTIXOptions` | Per-manager behavior options |
-| `State` | Current tracked packages and scoop buckets |
-| `DiffResult` | Computed actions (install/upgrade/remove/adopt/skip) |
-| `InstalledPackages` | Packages found on the system |
-| `WingetManagerTrait` | Abstraction over the winget CLI (mockable) |
+| `State` | Current tracked packages, scoop buckets, config files |
+| `DiffResult` | Computed actions (install/upgrade/remove/adopt/untracked/config files/warnings) |
+| `InstalledPackages` | Packages found on the system (per-manager maps) |
+| `PackageManager` | Typed manager identifier (`Winget`, `Chocolatey`, `Scoop`) |
+| `ValidationResult` | Manager capability check shared by diff and apply |
+| `ConfigFileEntry` | A source/destination pair for a managed file |
 | `CommandRunner` | Abstraction over shell commands (mockable) |
-| `ManagerPresence` | Abstraction over choco/scoop availability (mockable) |
 | `ProcessCommandRunner` | Default `CommandRunner` using `cmd.exe` |
 | `parse_table` | Parses the column-aligned output of package managers |
 | `DiffEngine` | `diff::diff_engine::compute_diff` |
@@ -52,19 +54,28 @@ use ntix_rs::config::config_loader;
 use ntix_rs::state_management::state_service;
 use ntix_rs::diff::diff_engine;
 use ntix_rs::execution::execution_engine;
+use ntix_rs::package_manager::package_manager_detector;
 
 let config = config_loader::load("config.lua".into())?;
 let mut state = state_service::load_state(None).unwrap_or_default();
 
 let progress = indicatif::ProgressBar::new_spinner();
+let validation = package_manager_detector::validate_managers_async(
+    &config.options, &config, None, None, None, None,
+).await;
+
 let diff = diff_engine::compute_diff(
-    &config, &state, None, None, None, false, false, true, None, &progress,
+    &config, &state,
+    validation.winget_installed.then_some(true),
+    validation.choco_installed.then_some(true),
+    validation.scoop_installed.then_some(true),
+    None, false, false, true, None, &progress,
 ).await?;
 
 let state_path = state_service::get_state_path()?;
 let success = execution_engine::apply_diff(
     &diff, &config.options, &mut state, &state_path, false,
-    None, None, Some(&config),
+    &validation, false,
     Some(&|line: &str| println!("{line}")),
     Some(&|err: &str| eprintln!("{err}")),
     None,

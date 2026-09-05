@@ -36,6 +36,25 @@ return {
 }
 ```
 
+### Config files contract
+
+An optional `configFiles` table declares arbitrary files to manage. Keys are absolute destination paths; values are source paths resolved relative to the config file's directory.
+
+```lua
+return {
+    options = {},
+    pkgs = {},
+    configFiles = {
+        ["C:/Users/you/AppData/Roaming/kitty/kitty.conf"] = "configs/kitty.conf"
+    }
+}
+```
+
+| Rule | Behavior |
+|------|----------|
+| Destination | Must be an absolute path; use `/` (Lua treats `\` as an escape sequence). A relative destination is a load error |
+| Source | Resolved relative to the config file's directory; must exist at load time (otherwise a load error) |
+
 ### Built-in Lua Function: import()
 
 ```lua
@@ -43,7 +62,7 @@ import("shared/packages.lua")
 import({ "./base.lua", "../../packages/scoop.lua" })
 ```
 
-`import()` accepts either a single path string or an array of path strings. Paths are resolved relative to the importing file. Nested `import()` calls work while an imported script runs. Package arrays are deduplicated by ID (last wins); options tables are deep-merged.
+`import()` accepts either a single path string or an array of path strings. Paths are resolved relative to the importing file. Nested `import()` calls work while an imported script runs. Package arrays are deduplicated by ID (last wins); options tables are deep-merged; `configFiles` maps are merged the same way.
 
 ### Errors
 
@@ -52,3 +71,4 @@ import({ "./base.lua", "../../packages/scoop.lua" })
 - `return` value that is not a table
 - Missing top-level `options` or `pkgs` table
 - Import file not found (referenced from config)
+- `configFiles` destination not absolute, or source file missing

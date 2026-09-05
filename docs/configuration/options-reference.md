@@ -6,11 +6,12 @@ The `options` table controls how NTIX interacts with each package manager.
 
 ### Winget
 
-| Option             | Type    | Default | Description                    |
-| ------------------ | ------- | ------- | ------------------------------ |
-| `enable`           | boolean | `false` | Enable winget                  |
-| `acceptAgreements` | boolean | `false` | Auto-accept license agreements |
-| `interactive`      | boolean | `false` | Show installer UI              |
+| Option               | Type    | Default | Description                        |
+| -------------------- | ------- | ------- | ---------------------------------- |
+| `enable`             | boolean | `false` | Enable winget                      |
+| `acceptAgreements`   | boolean | `false` | Auto-accept source/license agreements |
+| `silent`             | boolean | `false` | Run installs silently (`--silent`) |
+| `disableInteractivity` | boolean | `false` | Disable interactive prompts (`--disable-interactivity`) |
 
 ### Chocolatey
 
