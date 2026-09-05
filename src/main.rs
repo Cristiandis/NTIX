@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
+#[command(name = "ntix", version)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
