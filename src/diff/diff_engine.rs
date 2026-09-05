@@ -10,11 +10,12 @@ use crate::{
     models::{
         diff_result::DiffResult, installed_packages::InstalledPackages,
         installed_packages::UpgradeInfo, ntix_config::NTIXConfig, options::ScoopBucket,
-        package_entry::PackageEntry, package_spec::PackageSpec, state::State,
+        package_entry::PackageEntry, package_manager::PackageManager, package_spec::PackageSpec,
+        state::State,
     },
     package_manager::{
         command_builder, command_runner::CommandRunner, package_manager_detector,
-        process_command_runner::ProcessCommandRunner, winget_manager_trait::WingetManagerTrait,
+        process_command_runner::ProcessCommandRunner,
     },
 };
 
@@ -22,7 +23,7 @@ use crate::{
 pub async fn compute_diff(
     config: &NTIXConfig,
     state: &State,
-    winget_manager: Option<&dyn WingetManagerTrait>,
+    winget_installed: Option<bool>,
     choco_installed: Option<bool>,
     scoop_installed: Option<bool>,
     runner: Option<&dyn CommandRunner>,
@@ -36,14 +37,16 @@ pub async fn compute_diff(
     let validation = package_manager_detector::validate_managers_async(
         &config.options,
         config,
-        winget_manager,
+        winget_installed,
         choco_installed,
         scoop_installed,
+        runner,
     )
     .await;
 
     let mut result = DiffResult {
-        warnings: validation.warnings,
+        warnings: validation.warnings.clone(),
+        manager_validation: validation.clone(),
         ..Default::default()
     };
 
@@ -51,7 +54,7 @@ pub async fn compute_diff(
         Some(installed) => installed.clone(),
         None => {
             progress.set_message("Discovering installed packages...");
-            package_manager_detector::get_installed_packages_async(winget_manager, runner).await
+            package_manager_detector::get_installed_packages_async(runner).await
         }
     };
 
@@ -66,7 +69,7 @@ pub async fn compute_diff(
     progress.set_message("Checking for updates...");
 
     let winget_upgradable = if upgrade_mode && has_winget_unpinned && winget_enabled {
-        package_manager_detector::get_winget_upgradable_packages_async(winget_manager).await
+        package_manager_detector::get_winget_upgradable_packages_async(runner).await
     } else {
         HashMap::new()
     };
@@ -84,7 +87,7 @@ pub async fn compute_diff(
     classify_packages(
         &mut result,
         &config.winget_packages,
-        "winget",
+        PackageManager::Winget,
         winget_enabled,
         &installed_pkgs.winget,
         &state.winget,
@@ -94,7 +97,7 @@ pub async fn compute_diff(
     classify_packages(
         &mut result,
         &config.choco_packages,
-        "chocolatey",
+        PackageManager::Chocolatey,
         choco_enabled,
         &installed_pkgs.chocolatey,
         &state.chocolatey,
@@ -104,7 +107,7 @@ pub async fn compute_diff(
     classify_packages(
         &mut result,
         &config.scoop_packages,
-        "scoop",
+        PackageManager::Scoop,
         scoop_enabled,
         &installed_pkgs.scoop,
         &state.scoop,
@@ -117,7 +120,7 @@ pub async fn compute_diff(
         validate_package_availability(
             &mut result,
             state,
-            winget_manager,
+            runner,
             winget_enabled,
             choco_enabled,
             scoop_enabled,
@@ -131,7 +134,7 @@ pub async fn compute_diff(
             &mut result,
             &state.winget,
             &config.winget_packages,
-            "winget",
+            PackageManager::Winget,
         );
     }
     if validation.choco_installed {
@@ -139,11 +142,16 @@ pub async fn compute_diff(
             &mut result,
             &state.chocolatey,
             &config.choco_packages,
-            "chocolatey",
+            PackageManager::Chocolatey,
         );
     }
     if validation.scoop_installed {
-        find_orphans(&mut result, &state.scoop, &config.scoop_packages, "scoop");
+        find_orphans(
+            &mut result,
+            &state.scoop,
+            &config.scoop_packages,
+            PackageManager::Scoop,
+        );
     }
 
     if scoop_enabled && !config.options.scoop.buckets.is_empty() {
@@ -223,7 +231,7 @@ fn ci_lookup<'a, V>(map: &'a HashMap<String, V>, key: &str) -> Option<&'a V> {
 fn classify_packages(
     result: &mut DiffResult,
     packages: &[PackageEntry],
-    source_name: &str,
+    source_name: PackageManager,
     enabled: bool,
     installed_dict: &HashMap<String, String>,
     state_dict: &HashMap<String, String>,
@@ -238,7 +246,7 @@ fn classify_packages(
         let mut spec = PackageSpec {
             id: pkg.id.clone(),
             version: pkg.version.clone(),
-            source: source_name.to_string(),
+            source: source_name,
         };
         let is_installed = ci_lookup(installed_dict, &pkg.id).is_some();
         let in_state = ci_lookup(state_dict, &pkg.id).is_some();
@@ -289,7 +297,7 @@ fn find_orphans(
     result: &mut DiffResult,
     state_dict: &HashMap<String, String>,
     config_packages: &[PackageEntry],
-    source_name: &str,
+    source_name: PackageManager,
 ) {
     for (id, ver) in state_dict {
         if !config_packages
@@ -299,7 +307,7 @@ fn find_orphans(
             result.to_remove.push(PackageSpec {
                 id: id.to_string(),
                 version: Some(ver.to_string()),
-                source: source_name.to_string(),
+                source: source_name,
             });
         }
     }
@@ -308,14 +316,14 @@ fn find_orphans(
 async fn validate_package_availability(
     result: &mut DiffResult,
     state: &State,
-    winget_manager: Option<&dyn WingetManagerTrait>,
+    runner: Option<&dyn CommandRunner>,
     winget_enabled: bool,
     choco_enabled: bool,
     scoop_enabled: bool,
 ) {
-    let winget_pkgs: Vec<PackageSpec> = extract_pkgs_to_install(result, "winget");
-    let choco_pkgs: Vec<PackageSpec> = extract_pkgs_to_install(result, "chocolatey");
-    let scoop_pkgs: Vec<PackageSpec> = extract_pkgs_to_install(result, "scoop");
+    let winget_pkgs: Vec<PackageSpec> = extract_pkgs_to_install(result, PackageManager::Winget);
+    let choco_pkgs: Vec<PackageSpec> = extract_pkgs_to_install(result, PackageManager::Chocolatey);
+    let scoop_pkgs: Vec<PackageSpec> = extract_pkgs_to_install(result, PackageManager::Scoop);
 
     let new_winget_ids: Vec<String> = new_pkg_ids(&winget_pkgs, &state.winget);
     let new_choco_ids: Vec<String> = new_pkg_ids(&choco_pkgs, &state.chocolatey);
@@ -326,7 +334,7 @@ async fn validate_package_availability(
             if winget_enabled && !new_winget_ids.is_empty() {
                 package_manager_detector::validate_winget_packages_exist_async(
                     &new_winget_ids,
-                    winget_manager,
+                    runner,
                 )
                 .await
             } else {
@@ -335,22 +343,22 @@ async fn validate_package_availability(
         },
         async {
             if choco_enabled && !new_choco_ids.is_empty() {
-                package_manager_detector::validate_choco_packages_exist_async(&new_choco_ids, None)
-                    .await
-                    .into_iter()
-                    .map(|(id, ok)| (id, Some(ok)))
-                    .collect()
+                package_manager_detector::validate_choco_packages_exist_async(
+                    &new_choco_ids,
+                    runner,
+                )
+                .await
             } else {
                 HashMap::new()
             }
         },
         async {
             if scoop_enabled && !new_scoop_ids.is_empty() {
-                package_manager_detector::validate_scoop_packages_exist_async(&new_scoop_ids, None)
-                    .await
-                    .into_iter()
-                    .map(|(id, ok)| (id, Some(ok)))
-                    .collect()
+                package_manager_detector::validate_scoop_packages_exist_async(
+                    &new_scoop_ids,
+                    runner,
+                )
+                .await
             } else {
                 HashMap::new()
             }
@@ -359,9 +367,9 @@ async fn validate_package_availability(
 
     let mut invalid: HashSet<String> = HashSet::new();
     for (pkgs, results, source) in [
-        (&winget_pkgs, &winget_results, "winget"),
-        (&choco_pkgs, &choco_results, "chocolatey"),
-        (&scoop_pkgs, &scoop_results, "scoop"),
+        (&winget_pkgs, &winget_results, PackageManager::Winget),
+        (&choco_pkgs, &choco_results, PackageManager::Chocolatey),
+        (&scoop_pkgs, &scoop_results, PackageManager::Scoop),
     ] {
         for pkg in pkgs {
             match results.get(&pkg.id) {
@@ -391,7 +399,7 @@ fn new_pkg_ids(pkgs: &[PackageSpec], state_dict: &HashMap<String, String>) -> Ve
         .collect()
 }
 
-fn extract_pkgs_to_install(result: &DiffResult, source: &str) -> Vec<PackageSpec> {
+fn extract_pkgs_to_install(result: &DiffResult, source: PackageManager) -> Vec<PackageSpec> {
     result
         .to_install
         .iter()

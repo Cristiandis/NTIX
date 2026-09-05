@@ -1,23 +1,18 @@
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 
 use ntix_rs::lock::lock_file::LockFile;
 
+mod common;
+
 fn temp_lock_path(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "ntix_lock_{}_{}_{}",
-        tag,
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let dir = std::env::temp_dir().join(common::unique_tag(&format!("lock_{tag}")));
     fs::create_dir_all(&dir).unwrap();
     dir.join("test.lock")
 }
 
-fn cleanup(dir: &PathBuf) {
+fn cleanup(dir: &Path) {
     if let Some(parent) = dir.parent() {
         let _ = fs::remove_dir_all(parent);
     }

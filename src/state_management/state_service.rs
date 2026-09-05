@@ -9,6 +9,8 @@ use std::{
 use crate::models::state::State;
 use crate::paths;
 
+pub const DEFAULT_MAX_RETRIES: u32 = 3;
+
 pub fn get_state_path() -> Result<PathBuf, Box<dyn Error>> {
     Ok(paths::local_app_data_path()?.join("state.json"))
 }
@@ -28,15 +30,30 @@ pub fn load_state(path: Option<&Path>) -> Option<State> {
         return None;
     }
 
-    let json = fs::read_to_string(&state_path).ok()?;
-    Some(migrate_state(serde_json::from_str(&json).ok()?))
-}
-
-fn migrate_state(mut state: State) -> State {
+    let json = match fs::read_to_string(&state_path) {
+        Ok(json) => json,
+        Err(e) => {
+            eprintln!(
+                "[NTIX] Could not read state file {}: {e}",
+                state_path.display()
+            );
+            return None;
+        }
+    };
+    let mut state: State = match serde_json::from_str(&json) {
+        Ok(state) => state,
+        Err(e) => {
+            eprintln!(
+                "[NTIX] Could not parse state file {} (corrupt?). Starting from empty state: {e}",
+                state_path.display()
+            );
+            return None;
+        }
+    };
     if state.version < 2 {
         state.version = 2;
     }
-    state
+    Some(state)
 }
 
 pub fn save_state(
