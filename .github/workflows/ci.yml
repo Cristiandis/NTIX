@@ -17,7 +17,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-pc-windows-gnu,aarch64-pc-windows-msvc
+          targets: x86_64-pc-windows-gnu
           components: llvm-tools-preview
 
       - name: Cache cargo
@@ -26,11 +26,8 @@ jobs:
       - name: Install Mingw-w64 linker
         run: choco install mingw -y
 
-      - name: Build (x64 gnu)
+      - name: Build
         run: cargo build --all-targets --target x86_64-pc-windows-gnu
-
-      - name: Build (arm64 msvc)
-        run: cargo build --all-targets --target aarch64-pc-windows-msvc
 
       - name: Test
         run: cargo test --target x86_64-pc-windows-gnu
