@@ -8,6 +8,17 @@ use ntix_rs::package_manager::command_runner::{CommandRunner, LineCallback};
 
 type RunHandler = Box<dyn Fn(&str) -> i32 + Send + Sync>;
 
+/// Returns a tag string that is unique across the whole process.
+pub fn unique_tag(prefix: &str) -> String {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    format!(
+        "ntix_{}_pid{}_{}",
+        prefix,
+        std::process::id(),
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    )
+}
+
 /// Hand-rolled mock of `CommandRunner`.
 pub struct MockCommandRunner {
     pub captured_commands: Mutex<Vec<String>>,

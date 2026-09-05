@@ -54,14 +54,7 @@ fn spec(id: &str, version: Option<&str>, source: &str) -> PackageSpec {
 }
 
 fn temp_state_path() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "ntix_exec_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let dir = std::env::temp_dir().join(common::unique_tag("exec"));
     fs::create_dir_all(&dir).unwrap();
     let p = dir.join("state.json");
     if p.exists() {
@@ -1853,14 +1846,7 @@ async fn apply_diff_async_on_output_called_for_remove() {
 
 #[tokio::test]
 async fn apply_diff_apply_config_copies_files_and_updates_state() {
-    let dir = std::env::temp_dir().join(format!(
-        "ntix_exec_cfg_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let dir = std::env::temp_dir().join(common::unique_tag("exec_cfg"));
     std::fs::create_dir_all(&dir).unwrap();
     let src = dir.join("kitty.conf");
     std::fs::write(&src, "font_size 12").unwrap();
@@ -1924,14 +1910,7 @@ async fn apply_diff_apply_config_copies_files_and_updates_state() {
 
 #[tokio::test]
 async fn apply_diff_apply_config_missing_source_calls_on_error() {
-    let dir = std::env::temp_dir().join(format!(
-        "ntix_exec_cfg_missing_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let dir = std::env::temp_dir().join(common::unique_tag("exec_cfg_missing"));
     std::fs::create_dir_all(&dir).unwrap();
     let missing_src = dir.join("does_not_exist.conf");
     let dest = dir.join("nested").join("dest").join("t.conf");
@@ -1984,14 +1963,7 @@ async fn apply_diff_apply_config_missing_source_calls_on_error() {
 
 #[tokio::test]
 async fn apply_diff_apply_config_write_failure_calls_on_error() {
-    let dir = std::env::temp_dir().join(format!(
-        "ntix_exec_cfg_write_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let dir = std::env::temp_dir().join(common::unique_tag("exec_cfg_write"));
     std::fs::create_dir_all(&dir).unwrap();
     let src = dir.join("src.conf");
     std::fs::write(&src, "content").unwrap();
@@ -2047,14 +2019,7 @@ async fn apply_diff_apply_config_write_failure_calls_on_error() {
 
 #[tokio::test]
 async fn apply_diff_apply_config_drops_orphans_keeps_file() {
-    let dir = std::env::temp_dir().join(format!(
-        "ntix_exec_orphan_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let dir = std::env::temp_dir().join(common::unique_tag("exec_orphan"));
     std::fs::create_dir_all(&dir).unwrap();
     let orphan_file = dir.join("orphan.conf");
     std::fs::write(&orphan_file, "keep me").unwrap();

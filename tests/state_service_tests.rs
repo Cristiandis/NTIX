@@ -4,16 +4,10 @@ use std::fs;
 use ntix_rs::models::state::State;
 use ntix_rs::state_management::state_service;
 
+mod common;
+
 fn temp_json_path(tag: &str) -> std::path::PathBuf {
-    let path = std::env::temp_dir().join(format!(
-        "ntix_state_{}_{}_{}.json",
-        tag,
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let path = std::env::temp_dir().join(format!("{}.json", common::unique_tag(tag)));
     let _ = fs::remove_file(&path);
     path
 }
@@ -85,14 +79,7 @@ fn save_state_directory_creation_fails_returns_err() {
 
 #[test]
 fn save_state_exhausts_retries_returns_false() {
-    let temp_dir = std::env::temp_dir().join(format!(
-        "ntix_state_retries_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let temp_dir = std::env::temp_dir().join(common::unique_tag("state_retries"));
     fs::create_dir_all(&temp_dir).unwrap();
     let state_file_path = temp_dir.join("state.json");
     fs::create_dir_all(&state_file_path).unwrap();

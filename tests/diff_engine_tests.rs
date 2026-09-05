@@ -9,7 +9,9 @@ use ntix_rs::models::package_manager::PackageManager;
 use ntix_rs::models::state::State;
 
 mod common;
-use common::{MockCommandRunner, winget_list_command, winget_list_table, winget_search_command};
+use common::{
+    MockCommandRunner, unique_tag, winget_list_command, winget_list_table, winget_search_command,
+};
 
 fn progress() -> ProgressBar {
     ProgressBar::new_spinner()
@@ -1199,14 +1201,7 @@ async fn compute_diff_with_progress_reports_steps() {
 }
 
 fn temp_cfg_dir() -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "ntix_diff_cfg_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let dir = std::env::temp_dir().join(unique_tag("diff_cfg"));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
