@@ -1,11 +1,11 @@
 use ntix_rs::models::diff_result::DiffResult;
 use ntix_rs::models::installed_packages::{InstalledPackages, UpgradeInfo};
 use ntix_rs::models::ntix_config::NTIXConfig;
-use ntix_rs::models::options::{NTIXOptions, ScoopOptions, WingetOptions};
+use ntix_rs::models::options::{NTIXOptions, ScoopOptions};
 use ntix_rs::models::package_entry::PackageEntry;
+use ntix_rs::models::package_manager::PackageManager;
 use ntix_rs::models::package_spec::PackageSpec;
 use ntix_rs::models::state::State;
-use ntix_rs::package_manager::command_builder;
 
 #[test]
 fn package_entry_default_version_is_none() {
@@ -52,7 +52,7 @@ fn diff_result_is_empty_false_when_has_items() {
         to_install: vec![PackageSpec {
             id: "test".to_string(),
             version: None,
-            source: "winget".to_string(),
+            source: PackageManager::Winget,
         }],
         ..Default::default()
     };
@@ -86,7 +86,7 @@ fn diff_result_is_empty_false_when_to_adopt_not_empty() {
         to_adopt: vec![PackageSpec {
             id: "manual-pkg".to_string(),
             version: Some("1.0".to_string()),
-            source: "winget".to_string(),
+            source: PackageManager::Winget,
         }],
         ..Default::default()
     };
@@ -113,12 +113,12 @@ fn diff_result_is_empty_true_when_only_to_skip() {
             PackageSpec {
                 id: "pkg1".to_string(),
                 version: Some("1.0".to_string()),
-                source: "winget".to_string(),
+                source: PackageManager::Winget,
             },
             PackageSpec {
                 id: "pkg2".to_string(),
                 version: None,
-                source: "chocolatey".to_string(),
+                source: PackageManager::Chocolatey,
             },
         ],
         ..Default::default()

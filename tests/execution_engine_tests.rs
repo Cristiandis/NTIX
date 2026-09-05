@@ -1,17 +1,20 @@
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 
 use ntix_rs::execution::execution_engine::apply_diff;
 use ntix_rs::models::diff_result::DiffResult;
+use ntix_rs::models::manager_validation::ValidationResult;
 use ntix_rs::models::ntix_config::NTIXConfig;
 use ntix_rs::models::options::{
     ChocoOptions, NTIXOptions, ScoopBucket, ScoopOptions, WingetOptions,
 };
+use ntix_rs::models::package_manager::PackageManager;
 use ntix_rs::models::package_spec::PackageSpec;
 use ntix_rs::models::state::State;
 
 mod common;
-use common::{MockCommandRunner, MockWingetManager};
+use common::{MockCommandRunner, winget_list_table};
 
 fn options(winget: WingetOptions, choco: ChocoOptions, scoop: ScoopOptions) -> NTIXOptions {
     NTIXOptions {
@@ -46,7 +49,7 @@ fn spec(id: &str, version: Option<&str>, source: &str) -> PackageSpec {
     PackageSpec {
         id: id.to_string(),
         version: version.map(|s| s.to_string()),
-        source: source.to_string(),
+        source: PackageManager::from_name(source).expect("valid manager source"),
     }
 }
 
@@ -67,7 +70,7 @@ fn temp_state_path() -> PathBuf {
     p
 }
 
-fn remove_path(path: &PathBuf) {
+fn remove_path(path: &Path) {
     if let Some(parent) = path.parent() {
         let _ = fs::remove_dir_all(parent);
     }
@@ -77,23 +80,24 @@ async fn apply(
     diff: &DiffResult,
     options: &NTIXOptions,
     state: &mut State,
-    path: &PathBuf,
+    path: &Path,
     stop_on_failure: bool,
-    winget_manager: Option<&MockWingetManager>,
     config: Option<&NTIXConfig>,
     runner: Option<&MockCommandRunner>,
 ) -> bool {
+    let validation = ValidationResult {
+        winget_installed: true,
+        choco_installed: true,
+        scoop_installed: true,
+        warnings: validation_warnings(config, options),
+    };
     apply_diff(
         diff,
         options,
         state,
         path,
         stop_on_failure,
-        winget_manager
-            .map(|m| m as &dyn ntix_rs::package_manager::winget_manager_trait::WingetManagerTrait),
-        Some(true),
-        Some(true),
-        config,
+        &validation,
         false,
         None,
         None,
@@ -102,21 +106,43 @@ async fn apply(
     .await
 }
 
+/// Mirrors the warnings `package_manager_detector` would raise for a
+/// fully-installed manager setup, given the config's packaged declarations.
+fn validation_warnings(config: Option<&NTIXConfig>, options: &NTIXOptions) -> Vec<String> {
+    let Some(config) = config else {
+        return Vec::new();
+    };
+    let mut warnings = Vec::new();
+    if !config.choco_packages.is_empty() && !options.chocolatey.enable {
+        warnings.push(
+            "[warn] Chocolatey packages declared but chocolatey not enabled in options".to_string(),
+        );
+    }
+    if !config.scoop_packages.is_empty() && !options.scoop.enable {
+        warnings
+            .push("[warn] Scoop packages declared but scoop not enabled in options".to_string());
+    }
+    if !config.winget_packages.is_empty() && !options.winget.enable {
+        warnings
+            .push("[warn] Winget packages declared but winget not enabled in options".to_string());
+    }
+    warnings
+}
+
 #[tokio::test]
 async fn apply_diff_empty_diff_returns_true() {
     let diff = DiffResult::default();
     let options = empty_opts();
     let mut state = State::default();
     let path = temp_state_path();
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, None).await;
+    let result = apply(&diff, &options, &mut state, &path, false, None, None).await;
     assert!(result);
     remove_path(&path);
 }
 
 #[tokio::test]
-async fn apply_diff_async_winget_install_uses_mock_manager() {
-    let mut mock = MockWingetManager::new();
-    mock.install_result = true;
+async fn apply_diff_async_winget_install_uses_mock_runner() {
+    let runner = MockCommandRunner::new();
 
     let diff = DiffResult {
         to_install: vec![spec("test-pkg", Some("1.0"), "winget")],
@@ -132,20 +158,24 @@ async fn apply_diff_async_winget_install_uses_mock_manager() {
         &mut state,
         &path,
         false,
-        Some(&mock),
         None,
-        None,
+        Some(&runner),
     )
     .await;
     assert!(result);
     assert_eq!(state.winget.get("test-pkg"), Some(&"1.0".to_string()));
-    assert_eq!(mock.install_call_count(), 1);
+    assert!(
+        runner
+            .commands()
+            .iter()
+            .any(|c| c.contains("winget install") && c.contains("--id test-pkg"))
+    );
     remove_path(&path);
 }
 
 #[tokio::test]
-async fn apply_diff_async_winget_upgrade_uses_mock_manager() {
-    let mock = MockWingetManager::new();
+async fn apply_diff_async_winget_upgrade_uses_mock_runner() {
+    let runner = MockCommandRunner::new();
 
     let diff = DiffResult {
         to_upgrade: vec![spec("test-pkg", Some("2.0"), "winget")],
@@ -164,20 +194,24 @@ async fn apply_diff_async_winget_upgrade_uses_mock_manager() {
         &mut state,
         &path,
         false,
-        Some(&mock),
         None,
-        None,
+        Some(&runner),
     )
     .await;
     assert!(result);
     assert_eq!(state.winget.get("test-pkg"), Some(&"2.0".to_string()));
-    assert_eq!(mock.upgrade_call_count(), 1);
+    assert!(
+        runner
+            .commands()
+            .iter()
+            .any(|c| c.contains("winget upgrade") && c.contains("--id test-pkg"))
+    );
     remove_path(&path);
 }
 
 #[tokio::test]
-async fn apply_diff_async_winget_uninstall_uses_mock_manager() {
-    let mock = MockWingetManager::new();
+async fn apply_diff_async_winget_uninstall_uses_mock_runner() {
+    let runner = MockCommandRunner::new();
 
     let diff = DiffResult {
         to_remove: vec![spec("test-pkg", Some("1.0"), "winget")],
@@ -196,21 +230,24 @@ async fn apply_diff_async_winget_uninstall_uses_mock_manager() {
         &mut state,
         &path,
         false,
-        Some(&mock),
         None,
-        None,
+        Some(&runner),
     )
     .await;
     assert!(result);
-    assert_eq!(mock.uninstall_call_count(), 1);
+    assert!(
+        runner
+            .commands()
+            .iter()
+            .any(|c| c.contains("winget uninstall") && c.contains("--id test-pkg"))
+    );
     assert!(!state.winget.contains_key("test-pkg"));
     remove_path(&path);
 }
 
 #[tokio::test]
 async fn apply_diff_async_mixed_sources_works_correctly() {
-    let mock_winget = MockWingetManager::new();
-    let mock_runner = MockCommandRunner::new();
+    let runner = MockCommandRunner::new();
 
     let diff = DiffResult {
         to_install: vec![spec("winget-pkg", Some("1.0"), "winget")],
@@ -257,9 +294,8 @@ async fn apply_diff_async_mixed_sources_works_correctly() {
         &mut state,
         &path,
         false,
-        Some(&mock_winget),
         None,
-        Some(&mock_runner),
+        Some(&runner),
     )
     .await;
     assert!(result);
@@ -273,8 +309,13 @@ async fn apply_diff_async_mixed_sources_works_correctly() {
 
 #[tokio::test]
 async fn apply_diff_async_winget_install_failure_sets_all_ok_false() {
-    let mut mock = MockWingetManager::new();
-    mock.install_result = false;
+    let runner = MockCommandRunner::new();
+    *runner.run_handler.lock().unwrap() =
+        Some(Box::new(
+            |cmd: &str| {
+                if cmd.contains("winget") { 1 } else { 0 }
+            },
+        ));
 
     let diff = DiffResult {
         to_install: vec![spec("fail-pkg", Some("1.0"), "winget")],
@@ -290,13 +331,138 @@ async fn apply_diff_async_winget_install_failure_sets_all_ok_false() {
         &mut state,
         &path,
         false,
-        Some(&mock),
         None,
-        None,
+        Some(&runner),
     )
     .await;
     assert!(!result);
     assert!(!state.winget.contains_key("fail-pkg"));
+    remove_path(&path);
+}
+
+#[tokio::test]
+async fn apply_diff_async_winget_install_already_installed_counts_as_success() {
+    let mut runner = MockCommandRunner::new();
+    runner.output_responses.insert(
+        "winget list".to_string(),
+        winget_list_table(&[("test-pkg", "1.0", None)]),
+    );
+    *runner.run_handler.lock().unwrap() = Some(Box::new(|cmd: &str| {
+        if cmd.starts_with("winget install") {
+            1
+        } else {
+            0
+        }
+    }));
+
+    let diff = DiffResult {
+        to_install: vec![spec("test-pkg", Some("1.0"), "winget")],
+        ..Default::default()
+    };
+    let options = winget_opts();
+    let mut state = State::default();
+    let path = temp_state_path();
+
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        Some(&runner),
+    )
+    .await;
+    assert!(result);
+    assert_eq!(state.winget.get("test-pkg"), Some(&"1.0".to_string()));
+    remove_path(&path);
+}
+
+#[tokio::test]
+async fn apply_diff_async_winget_remove_already_gone_counts_as_success() {
+    let mut runner = MockCommandRunner::new();
+    runner.output_responses.insert(
+        "winget list".to_string(),
+        winget_list_table(&[("other-pkg", "1.0", None)]),
+    );
+    *runner.run_handler.lock().unwrap() = Some(Box::new(|cmd: &str| {
+        if cmd.starts_with("winget uninstall") {
+            1
+        } else {
+            0
+        }
+    }));
+
+    let diff = DiffResult {
+        to_remove: vec![spec("gone-pkg", Some("1.0"), "winget")],
+        ..Default::default()
+    };
+    let options = winget_opts();
+    let mut state = State::default();
+    state
+        .winget
+        .insert("gone-pkg".to_string(), "1.0".to_string());
+    let path = temp_state_path();
+
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        Some(&runner),
+    )
+    .await;
+    assert!(result);
+    assert!(!state.winget.contains_key("gone-pkg"));
+    remove_path(&path);
+}
+
+#[tokio::test]
+async fn apply_diff_async_scoop_remove_already_gone_counts_as_success() {
+    let mut runner = MockCommandRunner::new();
+    runner
+        .output_responses
+        .insert("scoop list".to_string(), "other-pkg 1.0\n".to_string());
+    *runner.run_handler.lock().unwrap() = Some(Box::new(|cmd: &str| {
+        if cmd.starts_with("scoop uninstall") {
+            1
+        } else {
+            0
+        }
+    }));
+
+    let diff = DiffResult {
+        to_remove: vec![spec("gone-pkg", Some("1.0"), "scoop")],
+        ..Default::default()
+    };
+    let options = options(
+        WingetOptions::default(),
+        ChocoOptions::default(),
+        ScoopOptions {
+            enable: true,
+            ..Default::default()
+        },
+    );
+    let mut state = State::default();
+    state
+        .scoop
+        .insert("gone-pkg".to_string(), "1.0".to_string());
+    let path = temp_state_path();
+
+    let result = apply(
+        &diff,
+        &options,
+        &mut state,
+        &path,
+        false,
+        None,
+        Some(&runner),
+    )
+    .await;
+    assert!(result);
+    assert!(!state.scoop.contains_key("gone-pkg"));
     remove_path(&path);
 }
 
@@ -313,12 +479,13 @@ async fn apply_diff_async_stop_on_false_continues_after_failure() {
     let mut state = State::default();
     let path = temp_state_path();
 
-    // fail-pkg fails, ok-pkg succeeds
-    let mut mock = MockWingetManager::new();
-    mock.install_per_id = Some(vec![
-        ("fail-pkg".to_string(), false),
-        ("ok-pkg".to_string(), true),
-    ]);
+    let runner = MockCommandRunner::new();
+    *runner.run_handler.lock().unwrap() =
+        Some(Box::new(
+            |cmd: &str| {
+                if cmd.contains("fail-pkg") { 1 } else { 0 }
+            },
+        ));
 
     let result = apply(
         &diff,
@@ -326,24 +493,25 @@ async fn apply_diff_async_stop_on_false_continues_after_failure() {
         &mut state,
         &path,
         false,
-        Some(&mock),
         None,
-        None,
+        Some(&runner),
     )
     .await;
     assert!(!result);
     assert_eq!(state.winget.get("ok-pkg"), Some(&"2.0".to_string()));
-    assert_eq!(mock.install_call_count(), 2);
+    assert_eq!(runner.commands().len(), 3);
     remove_path(&path);
 }
 
 #[tokio::test]
 async fn apply_diff_async_stop_on_true_returns_early_on_failure() {
-    let mut mock = MockWingetManager::new();
-    mock.install_per_id = Some(vec![
-        ("fail-pkg".to_string(), false),
-        ("ok-pkg".to_string(), true),
-    ]);
+    let runner = MockCommandRunner::new();
+    *runner.run_handler.lock().unwrap() =
+        Some(Box::new(
+            |cmd: &str| {
+                if cmd.contains("fail-pkg") { 1 } else { 0 }
+            },
+        ));
 
     let diff = DiffResult {
         to_install: vec![
@@ -362,20 +530,19 @@ async fn apply_diff_async_stop_on_true_returns_early_on_failure() {
         &mut state,
         &path,
         true,
-        Some(&mock),
         None,
-        None,
+        Some(&runner),
     )
     .await;
     assert!(!result);
     assert!(!state.winget.contains_key("ok-pkg"));
-    assert_eq!(mock.install_call_count(), 1);
+    assert_eq!(runner.commands().len(), 2);
     remove_path(&path);
 }
 
 #[tokio::test]
 async fn apply_diff_async_disabled_source_skips_package() {
-    let mock = MockWingetManager::new();
+    let runner = MockCommandRunner::new();
 
     let diff = DiffResult {
         to_install: vec![spec("test-pkg", Some("1.0"), "winget")],
@@ -398,20 +565,19 @@ async fn apply_diff_async_disabled_source_skips_package() {
         &mut state,
         &path,
         false,
-        Some(&mock),
         None,
-        None,
+        Some(&runner),
     )
     .await;
     assert!(result);
     assert!(state.winget.is_empty());
-    assert_eq!(mock.install_call_count(), 0);
+    assert!(runner.commands().is_empty());
     remove_path(&path);
 }
 
 #[tokio::test]
 async fn apply_diff_async_null_version_records_latest() {
-    let mock = MockWingetManager::new();
+    let runner = MockCommandRunner::new();
 
     let diff = DiffResult {
         to_install: vec![spec("test-pkg", None, "winget")],
@@ -427,9 +593,8 @@ async fn apply_diff_async_null_version_records_latest() {
         &mut state,
         &path,
         false,
-        Some(&mock),
         None,
-        None,
+        Some(&runner),
     )
     .await;
     assert!(result);
@@ -439,7 +604,7 @@ async fn apply_diff_async_null_version_records_latest() {
 
 #[tokio::test]
 async fn apply_diff_async_diff_with_warnings_still_processes() {
-    let mock = MockWingetManager::new();
+    let runner = MockCommandRunner::new();
 
     let diff = DiffResult {
         to_install: vec![spec("test-pkg", Some("1.0"), "winget")],
@@ -456,9 +621,8 @@ async fn apply_diff_async_diff_with_warnings_still_processes() {
         &mut state,
         &path,
         false,
-        Some(&mock),
         None,
-        None,
+        Some(&runner),
     )
     .await;
     assert!(result);
@@ -468,7 +632,6 @@ async fn apply_diff_async_diff_with_warnings_still_processes() {
 
 #[tokio::test]
 async fn apply_diff_async_config_missing_choco_warns_and_continues() {
-    let mock = MockWingetManager::new();
     let diff = DiffResult {
         to_install: vec![spec("test-pkg", Some("1.0"), "winget")],
         ..Default::default()
@@ -484,7 +647,7 @@ async fn apply_diff_async_config_missing_choco_warns_and_continues() {
         },
         ScoopOptions::default(),
     );
-    let config = NTIXConfig {
+    let _config = NTIXConfig {
         options: options.clone(),
         ..Default::default()
     };
@@ -496,20 +659,25 @@ async fn apply_diff_async_config_missing_choco_warns_and_continues() {
     let captured = warnings.clone();
 
     // Choco enabled but not installed -> warning, processing continues.
+    let mock_runner = MockCommandRunner::new();
     let result = apply_diff(
         &diff,
         &options,
         &mut state,
         &path,
         false,
-        Some(&mock),
-        Some(false),
-        Some(true),
-        Some(&config),
+        &ValidationResult {
+            winget_installed: true,
+            choco_installed: false,
+            scoop_installed: false,
+            warnings: vec![
+                "[warn] Chocolatey is enabled but not installed. Skipping Chocolatey packages. Install from https://chocolatey.org/install".to_string(),
+            ],
+        },
         false,
         None,
         Some(&|msg: &str| captured.lock().unwrap().push(msg.to_string())),
-        None,
+        Some(&mock_runner),
     )
     .await;
     assert!(result);
@@ -520,22 +688,6 @@ async fn apply_diff_async_config_missing_choco_warns_and_continues() {
             .iter()
             .any(|w| w.contains("Chocolatey is enabled but not installed"))
     );
-    remove_path(&path);
-}
-
-#[tokio::test]
-async fn apply_diff_async_unknown_source_is_skipped() {
-    let diff = DiffResult {
-        to_install: vec![spec("test-pkg", Some("1.0"), "unknown")],
-        ..Default::default()
-    };
-    let options = winget_opts();
-    let mut state = State::default();
-    let path = temp_state_path();
-
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, None).await;
-    assert!(result);
-    assert!(state.winget.is_empty());
     remove_path(&path);
 }
 
@@ -556,7 +708,7 @@ async fn apply_diff_async_choco_disabled_skips_choco_package() {
     let mut state = State::default();
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, None).await;
+    let result = apply(&diff, &options, &mut state, &path, false, None, None).await;
     assert!(result);
     assert!(state.chocolatey.is_empty());
     remove_path(&path);
@@ -579,7 +731,7 @@ async fn apply_diff_async_scoop_disabled_skips_scoop_package() {
     let mut state = State::default();
     let path = temp_state_path();
 
-    let result = apply(&diff, &options, &mut state, &path, false, None, None, None).await;
+    let result = apply(&diff, &options, &mut state, &path, false, None, None).await;
     assert!(result);
     assert!(state.scoop.is_empty());
     remove_path(&path);
@@ -587,7 +739,6 @@ async fn apply_diff_async_scoop_disabled_skips_scoop_package() {
 
 #[tokio::test]
 async fn apply_diff_async_config_missing_scoop_warns_and_continues() {
-    let mock = MockWingetManager::new();
     let diff = DiffResult {
         to_install: vec![spec("test-pkg", Some("1.0"), "winget")],
         ..Default::default()
@@ -600,7 +751,7 @@ async fn apply_diff_async_config_missing_scoop_warns_and_continues() {
             ..Default::default()
         },
     );
-    let config = NTIXConfig {
+    let _config = NTIXConfig {
         options: options.clone(),
         ..Default::default()
     };
@@ -618,10 +769,14 @@ async fn apply_diff_async_config_missing_scoop_warns_and_continues() {
         &mut state,
         &path,
         false,
-        Some(&mock),
-        Some(true),
-        Some(false),
-        Some(&config),
+        &ValidationResult {
+            winget_installed: true,
+            choco_installed: false,
+            scoop_installed: false,
+            warnings: vec![
+                "[warn] Scoop is enabled but not installed. Skipping Scoop packages and buckets. Install from https://scoop.sh".to_string(),
+            ],
+        },
         false,
         None,
         Some(&|msg: &str| captured.lock().unwrap().push(msg.to_string())),
@@ -640,8 +795,6 @@ async fn apply_diff_async_config_missing_scoop_warns_and_continues() {
 
 #[tokio::test]
 async fn apply_diff_async_config_validation_with_warnings_still_processes() {
-    let mock = MockWingetManager::new();
-
     let diff = DiffResult {
         to_install: vec![spec("winget-pkg", Some("1.0"), "winget")],
         ..Default::default()
@@ -677,15 +830,15 @@ async fn apply_diff_async_config_validation_with_warnings_still_processes() {
     let mut state = State::default();
     let path = temp_state_path();
 
+    let runner = MockCommandRunner::new();
     let result = apply(
         &diff,
         &options,
         &mut state,
         &path,
         false,
-        Some(&mock),
         Some(&config),
-        None,
+        Some(&runner),
     )
     .await;
     assert!(result);
@@ -695,7 +848,7 @@ async fn apply_diff_async_config_validation_with_warnings_still_processes() {
 
 #[tokio::test]
 async fn apply_diff_async_to_adopt_updates_state_without_install() {
-    let mock = MockWingetManager::new();
+    let runner = MockCommandRunner::new();
 
     let diff = DiffResult {
         to_adopt: vec![spec("manual-pkg", Some("3.0"), "winget")],
@@ -711,20 +864,24 @@ async fn apply_diff_async_to_adopt_updates_state_without_install() {
         &mut state,
         &path,
         false,
-        Some(&mock),
         None,
-        None,
+        Some(&runner),
     )
     .await;
     assert!(result);
     assert_eq!(state.winget.get("manual-pkg"), Some(&"3.0".to_string()));
-    assert_eq!(mock.install_call_count(), 0);
+    assert!(
+        !runner
+            .commands()
+            .iter()
+            .any(|c| c.contains("winget install"))
+    );
     remove_path(&path);
 }
 
 #[tokio::test]
 async fn apply_diff_async_to_adopt_null_version_records_latest() {
-    let mock = MockWingetManager::new();
+    let runner = MockCommandRunner::new();
 
     let diff = DiffResult {
         to_adopt: vec![spec("manual-pkg", None, "winget")],
@@ -740,9 +897,8 @@ async fn apply_diff_async_to_adopt_null_version_records_latest() {
         &mut state,
         &path,
         false,
-        Some(&mock),
         None,
-        None,
+        Some(&runner),
     )
     .await;
     assert!(result);
@@ -775,7 +931,6 @@ async fn apply_diff_async_choco_install_success() {
         &mut state,
         &path,
         false,
-        None,
         None,
         Some(&runner),
     )
@@ -816,7 +971,6 @@ async fn apply_diff_async_scoop_install_success() {
         &mut state,
         &path,
         false,
-        None,
         None,
         Some(&runner),
     )
@@ -861,7 +1015,6 @@ async fn apply_diff_async_choco_upgrade_success() {
         &path,
         false,
         None,
-        None,
         Some(&runner),
     )
     .await;
@@ -905,7 +1058,6 @@ async fn apply_diff_async_scoop_upgrade_success() {
         &path,
         false,
         None,
-        None,
         Some(&runner),
     )
     .await;
@@ -943,7 +1095,6 @@ async fn apply_diff_async_choco_remove_success() {
         &mut state,
         &path,
         false,
-        None,
         None,
         Some(&runner),
     )
@@ -988,7 +1139,6 @@ async fn apply_diff_async_scoop_remove_success() {
         &path,
         false,
         None,
-        None,
         Some(&runner),
     )
     .await;
@@ -1032,7 +1182,6 @@ async fn apply_diff_async_choco_upgrade_failure_stop_on_failure() {
         &mut state,
         &path,
         true,
-        None,
         None,
         Some(&runner),
     )
@@ -1082,7 +1231,6 @@ async fn apply_diff_async_choco_upgrade_failure_continues_on_failure() {
         &path,
         false,
         None,
-        None,
         Some(&runner),
     )
     .await;
@@ -1120,7 +1268,6 @@ async fn apply_diff_async_remove_failure_stop_on_failure() {
         &mut state,
         &path,
         true,
-        None,
         None,
         Some(&runner),
     )
@@ -1171,7 +1318,6 @@ async fn apply_diff_async_remove_failure_continues_on_failure() {
         &path,
         false,
         None,
-        None,
         Some(&runner),
     )
     .await;
@@ -1206,7 +1352,6 @@ async fn apply_diff_async_scoop_install_failure_stop_on_failure() {
         &mut state,
         &path,
         true,
-        None,
         None,
         Some(&runner),
     )
@@ -1257,7 +1402,6 @@ async fn apply_diff_async_scoop_upgrade_failure_continues_on_failure() {
         &path,
         false,
         None,
-        None,
         Some(&runner),
     )
     .await;
@@ -1291,7 +1435,6 @@ async fn apply_diff_async_scoop_buckets_already_added_skips() {
         &mut state,
         &path,
         false,
-        None,
         None,
         Some(&runner),
     )
@@ -1337,7 +1480,6 @@ async fn apply_diff_async_scoop_buckets_add_success_records_in_state() {
         &mut state,
         &path,
         false,
-        None,
         None,
         Some(&runner),
     )
@@ -1386,7 +1528,6 @@ async fn apply_diff_async_scoop_buckets_add_fails_reports_error() {
         &path,
         false,
         None,
-        None,
         Some(&runner),
     )
     .await;
@@ -1422,7 +1563,6 @@ async fn apply_diff_async_scoop_buckets_remove_orphans() {
         &mut state,
         &path,
         false,
-        None,
         None,
         Some(&runner),
     )
@@ -1479,7 +1619,6 @@ async fn apply_diff_async_scoop_buckets_remove_fails_reports_error() {
         &path,
         false,
         None,
-        None,
         Some(&runner),
     )
     .await;
@@ -1490,7 +1629,7 @@ async fn apply_diff_async_scoop_buckets_remove_fails_reports_error() {
 
 #[tokio::test]
 async fn apply_diff_async_on_output_called_for_install() {
-    let mock = MockWingetManager::new();
+    let runner = MockCommandRunner::new();
     let diff = DiffResult {
         to_install: vec![spec("test-pkg", Some("1.0"), "winget")],
         ..Default::default()
@@ -1509,14 +1648,16 @@ async fn apply_diff_async_on_output_called_for_install() {
         &mut state,
         &path,
         false,
-        Some(&mock),
-        None,
-        None,
-        None,
+        &ValidationResult {
+            winget_installed: true,
+            choco_installed: false,
+            scoop_installed: false,
+            warnings: Vec::new(),
+        },
         false,
         Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
         None,
-        None,
+        Some(&runner),
     )
     .await;
 
@@ -1529,8 +1670,13 @@ async fn apply_diff_async_on_output_called_for_install() {
 
 #[tokio::test]
 async fn apply_diff_async_on_error_called_for_failure() {
-    let mut mock = MockWingetManager::new();
-    mock.install_result = false;
+    let runner = MockCommandRunner::new();
+    *runner.run_handler.lock().unwrap() =
+        Some(Box::new(
+            |cmd: &str| {
+                if cmd.contains("winget") { 1 } else { 0 }
+            },
+        ));
     let diff = DiffResult {
         to_install: vec![spec("fail-pkg", Some("1.0"), "winget")],
         ..Default::default()
@@ -1549,14 +1695,16 @@ async fn apply_diff_async_on_error_called_for_failure() {
         &mut state,
         &path,
         false,
-        Some(&mock),
-        None,
-        None,
-        None,
+        &ValidationResult {
+            winget_installed: true,
+            choco_installed: false,
+            scoop_installed: false,
+            warnings: Vec::new(),
+        },
         false,
         None,
         Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
-        None,
+        Some(&runner),
     )
     .await;
 
@@ -1594,10 +1742,12 @@ async fn apply_diff_async_choco_invalid_id_build_error_calls_on_error() {
         &mut state,
         &path,
         false,
-        None,
-        Some(true),
-        None,
-        None,
+        &ValidationResult {
+            winget_installed: false,
+            choco_installed: true,
+            scoop_installed: false,
+            warnings: Vec::new(),
+        },
         false,
         None,
         Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
@@ -1617,7 +1767,7 @@ async fn apply_diff_async_choco_invalid_id_build_error_calls_on_error() {
 
 #[tokio::test]
 async fn apply_diff_async_on_output_called_for_upgrade() {
-    let mock = MockWingetManager::new();
+    let runner = MockCommandRunner::new();
     let diff = DiffResult {
         to_upgrade: vec![spec("test-pkg", Some("2.0"), "winget")],
         ..Default::default()
@@ -1639,14 +1789,16 @@ async fn apply_diff_async_on_output_called_for_upgrade() {
         &mut state,
         &path,
         false,
-        Some(&mock),
-        None,
-        None,
-        None,
+        &ValidationResult {
+            winget_installed: true,
+            choco_installed: false,
+            scoop_installed: false,
+            warnings: Vec::new(),
+        },
         false,
         Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
         None,
-        None,
+        Some(&runner),
     )
     .await;
 
@@ -1658,7 +1810,7 @@ async fn apply_diff_async_on_output_called_for_upgrade() {
 
 #[tokio::test]
 async fn apply_diff_async_on_output_called_for_remove() {
-    let mock = MockWingetManager::new();
+    let runner = MockCommandRunner::new();
     let diff = DiffResult {
         to_remove: vec![spec("test-pkg", Some("1.0"), "winget")],
         ..Default::default()
@@ -1680,14 +1832,16 @@ async fn apply_diff_async_on_output_called_for_remove() {
         &mut state,
         &path,
         false,
-        Some(&mock),
-        None,
-        None,
-        None,
+        &ValidationResult {
+            winget_installed: true,
+            choco_installed: false,
+            scoop_installed: false,
+            warnings: Vec::new(),
+        },
         false,
         Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
         None,
-        None,
+        Some(&runner),
     )
     .await;
 
@@ -1722,7 +1876,7 @@ async fn apply_diff_apply_config_copies_files_and_updates_state() {
     let options = empty_opts();
     let mut state = State::default();
     let path = temp_state_path();
-    let config = NTIXConfig::default();
+    let _config = NTIXConfig::default();
 
     let ok = apply_diff(
         &diff,
@@ -1730,10 +1884,7 @@ async fn apply_diff_apply_config_copies_files_and_updates_state() {
         &mut state,
         &path,
         false,
-        None,
-        Some(true),
-        Some(true),
-        Some(&config),
+        &ValidationResult::default(),
         true,
         None,
         None,
@@ -1795,7 +1946,7 @@ async fn apply_diff_apply_config_missing_source_calls_on_error() {
     let options = empty_opts();
     let mut state = State::default();
     let path = temp_state_path();
-    let config = NTIXConfig::default();
+    let _config = NTIXConfig::default();
 
     let error_messages: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
         std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -1807,10 +1958,7 @@ async fn apply_diff_apply_config_missing_source_calls_on_error() {
         &mut state,
         &path,
         false,
-        None,
-        Some(true),
-        Some(true),
-        Some(&config),
+        &ValidationResult::default(),
         true,
         None,
         Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
@@ -1861,7 +2009,7 @@ async fn apply_diff_apply_config_write_failure_calls_on_error() {
     let options = empty_opts();
     let mut state = State::default();
     let path = temp_state_path();
-    let config = NTIXConfig::default();
+    let _config = NTIXConfig::default();
 
     let error_messages: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
         std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -1873,10 +2021,7 @@ async fn apply_diff_apply_config_write_failure_calls_on_error() {
         &mut state,
         &path,
         false,
-        None,
-        Some(true),
-        Some(true),
-        Some(&config),
+        &ValidationResult::default(),
         true,
         None,
         Some(&|msg: &str| msgs.lock().unwrap().push(msg.to_string())),
@@ -1924,7 +2069,7 @@ async fn apply_diff_apply_config_drops_orphans_keeps_file() {
         .config_files
         .insert(orphan_file.to_string_lossy().to_string(), "hash".into());
     let path = temp_state_path();
-    let config = NTIXConfig::default();
+    let _config = NTIXConfig::default();
 
     let ok = apply_diff(
         &diff,
@@ -1932,10 +2077,7 @@ async fn apply_diff_apply_config_drops_orphans_keeps_file() {
         &mut state,
         &path,
         false,
-        None,
-        Some(true),
-        Some(true),
-        Some(&config),
+        &ValidationResult::default(),
         true,
         None,
         None,

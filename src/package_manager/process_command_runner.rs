@@ -25,7 +25,10 @@ impl CommandRunner for ProcessCommandRunner {
             .spawn()
         {
             Ok(c) => c,
-            Err(_) => return -1,
+            Err(e) => {
+                eprintln!("[NTIX] Failed to spawn command '{command}': {e}");
+                return -1;
+            }
         };
 
         let stdout = child.stdout.take().expect("stdout was piped");
@@ -52,7 +55,10 @@ impl CommandRunner for ProcessCommandRunner {
             .spawn()
         {
             Ok(c) => c,
-            Err(_) => return String::new(),
+            Err(e) => {
+                eprintln!("[NTIX] Failed to spawn command '{command}': {e}");
+                return String::new();
+            }
         };
 
         let stdout = child.stdout.take().expect("stdout was piped");

@@ -19,11 +19,12 @@ fn temp_json_path(tag: &str) -> std::path::PathBuf {
 }
 
 fn sample_state() -> State {
-    let mut state = State::default();
-    state.winget = HashMap::from([("pkg1".to_string(), "1.0".to_string())]);
-    state.chocolatey = HashMap::from([("pkg2".to_string(), "2.0".to_string())]);
-    state.scoop = HashMap::from([("pkg3".to_string(), "3.0".to_string())]);
-    state
+    State {
+        winget: HashMap::from([("pkg1".to_string(), "1.0".to_string())]),
+        chocolatey: HashMap::from([("pkg2".to_string(), "2.0".to_string())]),
+        scoop: HashMap::from([("pkg3".to_string(), "3.0".to_string())]),
+        ..State::default()
+    }
 }
 
 #[test]

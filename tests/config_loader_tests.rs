@@ -721,7 +721,7 @@ fn load_config_files_parses_dest_keyed_entries() {
         configFiles = {{ ["{dest}"] = "conf.d/kitty.conf" }}
         return {{ options = options, pkgs = pkgs, configFiles = configFiles }}
     "#,
-        dest = lua_escape(&std::path::Path::new(&dest))
+        dest = lua_escape(std::path::Path::new(&dest))
     );
     let path = placeholder_config_path(&dir);
     let config = config_loader::load_from_string(&lua, path).unwrap();
@@ -750,7 +750,7 @@ fn load_config_files_absolute_src_is_used_as_is() {
         configFiles = {{ ["{dest}"] = "{src}" }}
         return {{ options = options, pkgs = pkgs, configFiles = configFiles }}
     "#,
-        dest = lua_escape(&std::path::Path::new(&dest)),
+        dest = lua_escape(std::path::Path::new(&dest)),
         src = lua_escape(&abs_src)
     );
     let path = placeholder_config_path(&dir);
@@ -796,7 +796,7 @@ fn load_config_files_missing_src_errors() {
         configFiles = {{ ["{dest}"] = "does_not_exist.conf" }}
         return {{ options = options, pkgs = pkgs, configFiles = configFiles }}
     "#,
-        dest = lua_escape(&std::path::Path::new(&dest))
+        dest = lua_escape(std::path::Path::new(&dest))
     );
     let path = placeholder_config_path(&dir);
     let err = config_loader::load_from_string(&lua, path).unwrap_err();
@@ -829,7 +829,7 @@ fn load_config_files_from_import_merges() {
             configFiles = {{ ["{dest}"] = "{src}" }}
             return {{ options = options, pkgs = pkgs, configFiles = configFiles }}
         "#,
-            dest = lua_escape(&std::path::Path::new(&base_dest)),
+            dest = lua_escape(std::path::Path::new(&base_dest)),
             src = lua_escape(&base_src)
         ),
     )
@@ -866,7 +866,7 @@ fn load_config_files_src_not_string_errors() {
         configFiles = {{ ["{dest}"] = 123 }}
         return {{ options = options, pkgs = pkgs, configFiles = configFiles }}
     "#,
-        dest = lua_escape(&std::path::Path::new(&dest))
+        dest = lua_escape(std::path::Path::new(&dest))
     );
     let path = placeholder_config_path(&dir);
     let err = config_loader::load_from_string(&lua, path).unwrap_err();

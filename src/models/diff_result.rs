@@ -1,5 +1,6 @@
 use crate::models::{
-    config_file::ConfigFileEntry, options::ScoopBucket, package_spec::PackageSpec,
+    config_file::ConfigFileEntry, manager_validation::ValidationResult, options::ScoopBucket,
+    package_spec::PackageSpec,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -19,6 +20,8 @@ pub struct DiffResult {
     /// Dest paths still tracked in state but no longer present in the config.
     pub config_files_no_longer_managed: Vec<String>,
     pub warnings: Vec<String>,
+    /// Result of the single capability-detection pass for apply/diff runs.
+    pub manager_validation: ValidationResult,
 }
 
 impl DiffResult {

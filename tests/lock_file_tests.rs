@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 
 use ntix_rs::lock::lock_file::LockFile;
@@ -17,7 +18,7 @@ fn temp_lock_path(tag: &str) -> PathBuf {
     dir.join("test.lock")
 }
 
-fn cleanup(dir: &PathBuf) {
+fn cleanup(dir: &Path) {
     if let Some(parent) = dir.parent() {
         let _ = fs::remove_dir_all(parent);
     }

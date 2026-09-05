@@ -5,22 +5,27 @@ use ntix_rs::execution::execution_engine;
 use ntix_rs::lock::lock_file::LockFile;
 use ntix_rs::models::diff_result::DiffResult;
 use ntix_rs::models::options::ScoopBucket;
+use ntix_rs::models::package_manager::PackageManager;
 use ntix_rs::models::package_spec::PackageSpec;
-use ntix_rs::models::{import_node::ImportNode, ntix_config::NTIXConfig};
+use ntix_rs::models::{import_node::ImportNode, ntix_config::NTIXConfig, state::State};
 use ntix_rs::state_management::state_service;
 use ntix_rs::{diff, process_helper};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
 /// Returns `None` when a default config was just created and the caller
 /// should exit early (the user still needs to edit it).
+/// When `no_gc` is set, orphan removals are filtered out before the diff is
+/// printed, so the printed tree always matches what will actually be applied.
 async fn resolve_and_compute(
     config_path: Option<PathBuf>,
     command_name: &str,
     adopt: bool,
     upgrade: bool,
     apply_config: bool,
-) -> Result<Option<(NTIXConfig, PathBuf, DiffResult)>, Box<dyn std::error::Error>> {
+    no_gc: bool,
+) -> Result<Option<(NTIXConfig, PathBuf, State, DiffResult)>, Box<dyn std::error::Error>> {
     let is_new = config_path.is_none() && !config_loader::DEFAULT_CONFIG_PATH.is_file();
     let resolved_path = config_loader::ensure_default_config(config_path);
 
@@ -59,13 +64,18 @@ async fn resolve_and_compute(
         diff::diff_engine::compute_config_files_diff(&mut diff, &config, &state);
     }
 
+    if no_gc {
+        diff.to_remove.clear();
+        diff.buckets_to_remove.clear();
+    }
+
     print_diff_tree(&config_file_name, &config, &diff, apply_config);
 
     for w in &diff.warnings {
         eprintln!("{}", format!("Warning: {}", w).yellow());
     }
 
-    Ok(Some((config, resolved_path, diff)))
+    Ok(Some((config, resolved_path, state, diff)))
 }
 
 pub async fn apply(
@@ -86,16 +96,13 @@ pub async fn apply(
         return Ok(1);
     }
 
-    let Some((config, _resolved_path, mut diff)) =
-        resolve_and_compute(config_path, "apply", adopt, upgrade, apply_config).await?
+    let _lock = LockFile::new(None, true)?;
+
+    let Some((config, _resolved_path, mut state, diff)) =
+        resolve_and_compute(config_path, "apply", adopt, upgrade, apply_config, no_gc).await?
     else {
         return Ok(0);
     };
-
-    if no_gc {
-        diff.to_remove.clear();
-        diff.buckets_to_remove.clear();
-    }
 
     if dry_run {
         println!("\n{}", "(Dry run - no changes made)".yellow());
@@ -106,8 +113,6 @@ pub async fn apply(
         return Ok(0);
     }
 
-    let mut state = state_service::load_state(None).unwrap_or_default();
-    let _lock = LockFile::new(None, true)?;
     let state_path = state_service::get_state_path()?;
 
     let success = execution_engine::apply_diff(
@@ -116,10 +121,7 @@ pub async fn apply(
         &mut state,
         &state_path,
         stop_on_failure,
-        None,
-        None,
-        None,
-        Some(&config),
+        &diff.manager_validation,
         apply_config,
         Some(&|line: &str| println!("{line}")),
         Some(&|err: &str| eprintln!("{}", err.red())),
@@ -142,7 +144,7 @@ pub async fn diff_cmd(
     upgrade: bool,
     apply_config: bool,
 ) -> Result<i32, Box<dyn std::error::Error>> {
-    if resolve_and_compute(config_path, "diff", adopt, upgrade, apply_config)
+    if resolve_and_compute(config_path, "diff", adopt, upgrade, apply_config, false)
         .await?
         .is_none()
     {
@@ -159,26 +161,16 @@ pub fn state_cmd() -> Result<i32, Box<dyn std::error::Error>> {
 
     println!("{}", "NTIX State:".bold());
 
-    if state.winget.is_empty() && state.chocolatey.is_empty() && state.scoop.is_empty() {
+    let manager_maps = [
+        (&state.winget, PackageManager::Winget),
+        (&state.chocolatey, PackageManager::Chocolatey),
+        (&state.scoop, PackageManager::Scoop),
+    ];
+    if manager_maps.iter().all(|(map, _)| map.is_empty()) {
         println!("  {}", "(empty)".dimmed());
     } else {
-        for (id, ver) in &state.winget {
-            println!(
-                "  {}",
-                source_color("winget", &format!("winget: {id} ({ver})"))
-            );
-        }
-        for (id, ver) in &state.chocolatey {
-            println!(
-                "  {}",
-                source_color("chocolatey", &format!("chocolatey: {id} ({ver})"))
-            );
-        }
-        for (id, ver) in &state.scoop {
-            println!(
-                "  {}",
-                source_color("scoop", &format!("scoop: {id} ({ver})"))
-            );
+        for (map, source) in manager_maps {
+            print_state_map(map, source);
         }
     }
 
@@ -192,12 +184,20 @@ pub fn state_cmd() -> Result<i32, Box<dyn std::error::Error>> {
     Ok(0)
 }
 
-fn source_color(source: &str, text: &str) -> colored::ColoredString {
-    match source.to_lowercase().as_str() {
-        "winget" => text.truecolor(139, 0, 139),
-        "chocolatey" => text.blue(),
-        "scoop" => text.magenta(),
-        _ => text.normal(),
+fn print_state_map(map: &HashMap<String, String>, source: PackageManager) {
+    for (id, ver) in map {
+        println!(
+            "  {}",
+            source_color(source, &format!("{source}: {id} ({ver})"))
+        );
+    }
+}
+
+fn source_color(source: PackageManager, text: &str) -> colored::ColoredString {
+    match source {
+        PackageManager::Winget => text.truecolor(139, 0, 139),
+        PackageManager::Chocolatey => text.blue(),
+        PackageManager::Scoop => text.magenta(),
     }
 }
 
@@ -471,7 +471,7 @@ enum VersionStyle {
 }
 
 fn print_grouped(packages: &[PackageSpec], style: VersionStyle, prefix: &str) {
-    let mut sources: Vec<&str> = packages.iter().map(|p| p.source.as_str()).collect();
+    let mut sources: Vec<PackageManager> = packages.iter().map(|p| p.source).collect();
     sources.sort();
     sources.dedup();
 
@@ -489,7 +489,7 @@ fn print_grouped(packages: &[PackageSpec], style: VersionStyle, prefix: &str) {
                 "{}{}",
                 tree_branch(prefix, source_last),
                 source_color(
-                    source,
+                    *source,
                     &format!("{source}: {}{}", pkg.id, version_suffix(pkg, style))
                 )
             );
@@ -497,14 +497,17 @@ fn print_grouped(packages: &[PackageSpec], style: VersionStyle, prefix: &str) {
             println!(
                 "{}{}",
                 tree_branch(prefix, source_last),
-                source_color(source, &format!("{source} ({})", group.len()))
+                source_color(*source, &format!("{source} ({})", group.len()))
             );
             let pkg_count = group.len();
             for (j, pkg) in group.iter().enumerate() {
                 println!(
                     "{}{}",
                     tree_branch(&child_prefix, j + 1 == pkg_count),
-                    source_color(source, &format!("{}{}", pkg.id, version_suffix(pkg, style)))
+                    source_color(
+                        *source,
+                        &format!("{}{}", pkg.id, version_suffix(pkg, style))
+                    )
                 );
             }
         }

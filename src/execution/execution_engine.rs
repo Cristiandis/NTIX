@@ -1,20 +1,17 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::models::{
-    diff_result::DiffResult, ntix_config::NTIXConfig, options::NTIXOptions,
-    package_spec::PackageSpec, state::State,
+    diff_result::DiffResult, manager_validation::ValidationResult, options::NTIXOptions,
+    package_manager::PackageManager, package_spec::PackageSpec, state::State,
 };
 use crate::package_manager::{
-    command_builder,
+    choco_ops, command_builder,
     command_runner::{CommandRunner, LineCallback},
-    package_manager_detector,
     process_command_runner::ProcessCommandRunner,
-    winget_manager::WingetManager,
-    winget_manager_trait::WingetManagerTrait,
+    scoop_ops, winget_ops,
 };
 use crate::state_management::state_service;
-
-const DEFAULT_MAX_RETRIES: u32 = 3;
 
 async fn run_built_command(
     cmd: &dyn CommandRunner,
@@ -33,6 +30,39 @@ async fn run_built_command(
     }
 }
 
+/// Queries the installed-package list for the given manager. `None` means the
+/// query itself failed, so we cannot trust the result.
+async fn installed_map(
+    cmd: &dyn CommandRunner,
+    source: PackageManager,
+) -> Option<HashMap<String, String>> {
+    match source {
+        PackageManager::Winget => winget_ops::get_installed_packages(cmd).await.ok(),
+        PackageManager::Chocolatey => choco_ops::get_installed_packages(cmd).await.ok(),
+        PackageManager::Scoop => scoop_ops::get_installed_packages(cmd).await.ok(),
+    }
+}
+
+/// Winget exits nonzero when the requested package is already installed at the
+/// latest version ("no updates available"), which is a successful outcome.
+/// Treat it as such by re-checking the installed list.
+async fn verify_installed(cmd: &dyn CommandRunner, source: PackageManager, id: &str) -> bool {
+    match installed_map(cmd, source).await {
+        Some(packages) => packages.keys().any(|k| k.eq_ignore_ascii_case(id)),
+        None => false,
+    }
+}
+
+/// Some managers exit nonzero when uninstalling a package that is already
+/// gone. Treat the removal as successful only when the installed list
+/// confirms the package is absent.
+async fn verify_not_installed(cmd: &dyn CommandRunner, source: PackageManager, id: &str) -> bool {
+    match installed_map(cmd, source).await {
+        Some(packages) => packages.keys().all(|k| !k.eq_ignore_ascii_case(id)),
+        None => false,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn apply_diff(
     diff: &DiffResult,
@@ -40,10 +70,7 @@ pub async fn apply_diff(
     state: &mut State,
     state_path: &Path,
     stop_on_failure: bool,
-    winget_manager: Option<&dyn WingetManagerTrait>,
-    choco_installed: Option<bool>,
-    scoop_installed: Option<bool>,
-    config: Option<&NTIXConfig>,
+    validation: &ValidationResult,
     apply_config: bool,
     on_output: Option<LineCallback<'_>>,
     on_error: Option<LineCallback<'_>>,
@@ -51,26 +78,15 @@ pub async fn apply_diff(
 ) -> bool {
     let cmd: &dyn CommandRunner = runner.unwrap_or(&ProcessCommandRunner);
 
-    if let Some(config) = config {
-        let validation = package_manager_detector::validate_managers_async(
-            options,
-            config,
-            winget_manager,
-            choco_installed,
-            scoop_installed,
-        )
-        .await;
-        for w in &validation.warnings {
-            if !diff.warnings.contains(w)
-                && let Some(cb) = on_error
-            {
-                cb(w);
-            }
+    for w in &validation.warnings {
+        if !diff.warnings.contains(w)
+            && let Some(cb) = on_error
+        {
+            cb(w);
         }
     }
 
     let mut all_ok = true;
-    let manager: &dyn WingetManagerTrait = winget_manager.unwrap_or(&WingetManager);
 
     if options.scoop.enable
         && !apply_buckets(cmd, state, state_path, diff, on_output, on_error).await
@@ -85,7 +101,7 @@ pub async fn apply_diff(
     ] {
         for pkg in pkgs {
             if !run_operation(
-                cmd, manager, options, state, state_path, operation, pkg, on_output, on_error,
+                cmd, options, validation, state, state_path, operation, pkg, on_output, on_error,
             )
             .await
             {
@@ -128,7 +144,11 @@ fn save_state_or_warn(
     state_path: &Path,
     on_error: Option<LineCallback<'_>>,
 ) -> bool {
-    let ok = match state_service::save_state(state, Some(state_path), DEFAULT_MAX_RETRIES) {
+    let ok = match state_service::save_state(
+        state,
+        Some(state_path),
+        state_service::DEFAULT_MAX_RETRIES,
+    ) {
         Ok(true) => true,
         Ok(false) | Err(_) => false,
     };
@@ -267,8 +287,8 @@ enum Operation {
 #[allow(clippy::too_many_arguments)]
 async fn run_operation(
     cmd: &dyn CommandRunner,
-    manager: &dyn WingetManagerTrait,
     options: &NTIXOptions,
+    validation: &ValidationResult,
     state: &mut State,
     state_path: &Path,
     operation: Operation,
@@ -277,7 +297,7 @@ async fn run_operation(
     on_error: Option<LineCallback<'_>>,
 ) -> bool {
     let installs = matches!(operation, Operation::Install | Operation::Upgrade);
-    if installs && !is_enabled(&pkg.source, options) {
+    if installs && !is_enabled(pkg.source, options, validation) {
         return true;
     }
 
@@ -291,31 +311,33 @@ async fn run_operation(
         cb(&format!("{verb} {}:{}...", pkg.source, pkg.id));
     }
 
-    let success = match pkg.source.as_str() {
-        "winget" => match operation {
-            Operation::Upgrade => {
-                manager
-                    .upgrade(&pkg.id, options.winget, on_output, on_error)
-                    .await
+    let success = match pkg.source {
+        PackageManager::Winget => {
+            let build_result = match operation {
+                Operation::Install => command_builder::build_winget_install(
+                    &pkg.id,
+                    pkg.version.as_deref(),
+                    options.winget,
+                ),
+                Operation::Upgrade => {
+                    command_builder::build_winget_upgrade(&pkg.id, options.winget)
+                }
+                Operation::Remove => {
+                    command_builder::build_winget_uninstall(&pkg.id, options.winget)
+                }
+            };
+            let mut result = run_built_command(cmd, build_result, on_output, on_error).await;
+            if !result {
+                result = match operation {
+                    Operation::Remove => verify_not_installed(cmd, pkg.source, &pkg.id).await,
+                    Operation::Install | Operation::Upgrade => {
+                        verify_installed(cmd, pkg.source, &pkg.id).await
+                    }
+                };
             }
-            Operation::Install => {
-                manager
-                    .install(
-                        &pkg.id,
-                        pkg.version.as_deref(),
-                        options.winget,
-                        on_output,
-                        on_error,
-                    )
-                    .await
-            }
-            Operation::Remove => {
-                manager
-                    .uninstall(&pkg.id, options.winget, on_output, on_error)
-                    .await
-            }
-        },
-        "chocolatey" => {
+            result
+        }
+        PackageManager::Chocolatey => {
             let build_result = match operation {
                 Operation::Install => command_builder::build_choco_install(
                     &pkg.id,
@@ -329,9 +351,18 @@ async fn run_operation(
                     command_builder::build_choco_uninstall(&pkg.id, options.chocolatey.clone())
                 }
             };
-            run_built_command(cmd, build_result, on_output, on_error).await
+            let mut result = run_built_command(cmd, build_result, on_output, on_error).await;
+            if !result {
+                result = match operation {
+                    Operation::Remove => verify_not_installed(cmd, pkg.source, &pkg.id).await,
+                    Operation::Install | Operation::Upgrade => {
+                        verify_installed(cmd, pkg.source, &pkg.id).await
+                    }
+                };
+            }
+            result
         }
-        "scoop" => {
+        PackageManager::Scoop => {
             let build_result = match operation {
                 Operation::Install => command_builder::build_scoop_install(
                     &pkg.id,
@@ -345,9 +376,17 @@ async fn run_operation(
                     command_builder::build_scoop_uninstall(&pkg.id, options.scoop.clone())
                 }
             };
-            run_built_command(cmd, build_result, on_output, on_error).await
+            let mut result = run_built_command(cmd, build_result, on_output, on_error).await;
+            if !result {
+                result = match operation {
+                    Operation::Remove => verify_not_installed(cmd, pkg.source, &pkg.id).await,
+                    Operation::Install | Operation::Upgrade => {
+                        verify_installed(cmd, pkg.source, &pkg.id).await
+                    }
+                };
+            }
+            result
         }
-        _ => false,
     };
 
     if success {
@@ -367,29 +406,31 @@ async fn run_operation(
     }
 }
 
-fn is_enabled(source: &str, options: &NTIXOptions) -> bool {
+fn is_enabled(
+    source: PackageManager,
+    options: &NTIXOptions,
+    validation: &ValidationResult,
+) -> bool {
     match source {
-        "winget" => options.winget.enable,
-        "chocolatey" => options.chocolatey.enable,
-        "scoop" => options.scoop.enable,
-        _ => false,
+        PackageManager::Winget => options.winget.enable && validation.winget_installed,
+        PackageManager::Chocolatey => options.chocolatey.enable && validation.choco_installed,
+        PackageManager::Scoop => options.scoop.enable && validation.scoop_installed,
     }
 }
 
 fn update_state(state: &mut State, pkg: &PackageSpec, installed: bool) {
-    let dict = match pkg.source.as_str() {
-        "winget" => &mut state.winget,
-        "chocolatey" => &mut state.chocolatey,
-        "scoop" => &mut state.scoop,
-        other => panic!("Unknown source: {other}"),
+    let dict = match pkg.source {
+        PackageManager::Winget => &mut state.winget,
+        PackageManager::Chocolatey => &mut state.chocolatey,
+        PackageManager::Scoop => &mut state.scoop,
     };
 
     if installed {
         dict.insert(
-            pkg.id.clone(),
+            pkg.id.to_lowercase(),
             pkg.version.clone().unwrap_or_else(|| "latest".to_string()),
         );
     } else {
-        dict.remove(&pkg.id);
+        dict.retain(|key, _| !key.eq_ignore_ascii_case(&pkg.id));
     }
 }

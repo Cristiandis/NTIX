@@ -19,16 +19,23 @@ fn opts(choco_enable: bool, scoop_enable: bool) -> NTIXOptions {
     }
 }
 
-#[test]
-fn validate_managers_chocolatey_enabled_not_installed_warns_and_continues() {
+#[tokio::test]
+async fn validate_managers_chocolatey_enabled_not_installed_warns_and_continues() {
     let options = opts(true, false);
     let config = NTIXConfig {
         options: options.clone(),
         ..Default::default()
     };
 
-    let result =
-        package_manager_detector::validate_managers(&options, &config, Some(false), Some(true));
+    let result = package_manager_detector::validate_managers_async(
+        &options,
+        &config,
+        Some(true),
+        Some(false),
+        Some(true),
+        None,
+    )
+    .await;
     assert!(!result.choco_installed);
     assert!(
         result
@@ -39,30 +46,44 @@ fn validate_managers_chocolatey_enabled_not_installed_warns_and_continues() {
     );
 }
 
-#[test]
-fn validate_managers_chocolatey_enabled_installed_returns_valid() {
+#[tokio::test]
+async fn validate_managers_chocolatey_enabled_installed_returns_valid() {
     let options = opts(true, false);
     let config = NTIXConfig {
         options: options.clone(),
         ..Default::default()
     };
 
-    let result =
-        package_manager_detector::validate_managers(&options, &config, Some(true), Some(true));
+    let result = package_manager_detector::validate_managers_async(
+        &options,
+        &config,
+        Some(true),
+        Some(true),
+        Some(true),
+        None,
+    )
+    .await;
     assert!(result.choco_installed);
     assert!(result.warnings.is_empty());
 }
 
-#[test]
-fn validate_managers_scoop_enabled_not_installed_warns_and_continues() {
+#[tokio::test]
+async fn validate_managers_scoop_enabled_not_installed_warns_and_continues() {
     let options = opts(false, true);
     let config = NTIXConfig {
         options: options.clone(),
         ..Default::default()
     };
 
-    let result =
-        package_manager_detector::validate_managers(&options, &config, Some(true), Some(false));
+    let result = package_manager_detector::validate_managers_async(
+        &options,
+        &config,
+        Some(true),
+        Some(true),
+        Some(false),
+        None,
+    )
+    .await;
     assert!(!result.scoop_installed);
     assert!(
         result
@@ -72,22 +93,29 @@ fn validate_managers_scoop_enabled_not_installed_warns_and_continues() {
     );
 }
 
-#[test]
-fn validate_managers_scoop_enabled_installed_returns_valid() {
+#[tokio::test]
+async fn validate_managers_scoop_enabled_installed_returns_valid() {
     let options = opts(false, true);
     let config = NTIXConfig {
         options: options.clone(),
         ..Default::default()
     };
 
-    let result =
-        package_manager_detector::validate_managers(&options, &config, Some(true), Some(true));
+    let result = package_manager_detector::validate_managers_async(
+        &options,
+        &config,
+        Some(true),
+        Some(true),
+        Some(true),
+        None,
+    )
+    .await;
     assert!(result.scoop_installed);
     assert!(result.warnings.is_empty());
 }
 
-#[test]
-fn validate_managers_chocolatey_packages_not_enabled_returns_warning() {
+#[tokio::test]
+async fn validate_managers_chocolatey_packages_not_enabled_returns_warning() {
     let options = opts(false, false);
     let config = NTIXConfig {
         options: options.clone(),
@@ -98,14 +126,22 @@ fn validate_managers_chocolatey_packages_not_enabled_returns_warning() {
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers(&options, &config, None, None);
+    let result = package_manager_detector::validate_managers_async(
+        &options,
+        &config,
+        Some(true),
+        Some(true),
+        Some(true),
+        None,
+    )
+    .await;
     assert!(result.warnings.iter().any(|w| {
         w.contains("[warn] Chocolatey packages declared but chocolatey not enabled in options")
     }));
 }
 
-#[test]
-fn validate_managers_scoop_packages_not_enabled_returns_warning() {
+#[tokio::test]
+async fn validate_managers_scoop_packages_not_enabled_returns_warning() {
     let options = opts(false, false);
     let config = NTIXConfig {
         options: options.clone(),
@@ -116,7 +152,15 @@ fn validate_managers_scoop_packages_not_enabled_returns_warning() {
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers(&options, &config, None, None);
+    let result = package_manager_detector::validate_managers_async(
+        &options,
+        &config,
+        Some(true),
+        Some(true),
+        Some(true),
+        None,
+    )
+    .await;
     assert!(
         result
             .warnings
@@ -125,25 +169,41 @@ fn validate_managers_scoop_packages_not_enabled_returns_warning() {
     );
 }
 
-#[test]
-fn validate_managers_all_disabled_no_packages_returns_success() {
+#[tokio::test]
+async fn validate_managers_all_disabled_no_packages_returns_success() {
     let options = NTIXOptions::default();
     let config = NTIXConfig {
         options: options.clone(),
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers(&options, &config, None, None);
+    let result = package_manager_detector::validate_managers_async(
+        &options,
+        &config,
+        Some(true),
+        Some(true),
+        Some(true),
+        None,
+    )
+    .await;
     assert!(result.warnings.is_empty());
 }
 
-#[test]
-fn validate_managers_null_options_handles_gracefully() {
+#[tokio::test]
+async fn validate_managers_null_options_handles_gracefully() {
     let options = NTIXOptions::default();
     let config = NTIXConfig {
         options: options.clone(),
         ..Default::default()
     };
 
-    package_manager_detector::validate_managers(&options, &config, None, None);
+    package_manager_detector::validate_managers_async(
+        &options,
+        &config,
+        Some(true),
+        Some(true),
+        Some(true),
+        None,
+    )
+    .await;
 }
