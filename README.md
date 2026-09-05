@@ -4,7 +4,7 @@
 
 **nix-like package management for Windows.**
 
-Declare your desired packages in Lua. NTIX figures out what to install, upgrade, and remove across winget, Chocolatey, and Scoop.
+Declare your desired packages in Lua. NTIX figures out what to install, upgrade, and remove across winget, Chocolatey, and Scoop, plus arbitrary config files (dotfiles, settings) managed declaratively.
 
 ![NTIX Terminal](branding/ntix-terminal.gif)
 
@@ -35,7 +35,7 @@ return { options = options, pkgs = pkgs }
 
 ## Roadmap
 
-- **Arbitrary config files** — manage dotfiles, shell configs, and system settings declaratively (like NixOS Home Manager)
+- ~~**Arbitrary config files** — manage dotfiles, shell configs, and system settings declaratively (like NixOS Home Manager)~~ Added in v2.1.0
 - **Windows optional features** — enable/disable Hyper-V, OpenSSH, WSL, and other Windows features
 - **Nix-shells** — temporary environments with specific packages for your current session
 
