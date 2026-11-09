@@ -1,17 +1,21 @@
 use std::fmt;
 
-/// The package managers ntix can operate on. Used as a typed replacement for the
-/// string literals `"winget"` / `"chocolatey"` / `"scoop"` that were previously
-/// matched by hand throughout the codebase.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+/// The package managers ntix can operate on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PackageManager {
-    #[default]
     Winget,
     Chocolatey,
     Scoop,
 }
 
 impl PackageManager {
+    /// Every supported manager, in the canonical presentation order.
+    pub const ALL: [PackageManager; 3] = [
+        PackageManager::Winget,
+        PackageManager::Chocolatey,
+        PackageManager::Scoop,
+    ];
+
     /// The canonical lowercase name used in configs, messages and diagnostics.
     pub fn as_str(self) -> &'static str {
         match self {
@@ -21,23 +25,13 @@ impl PackageManager {
         }
     }
 
-    /// Case-insensitive lookup of a manager by name.
-    pub fn from_name(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "winget" => Some(PackageManager::Winget),
-            "chocolatey" => Some(PackageManager::Chocolatey),
-            "scoop" => Some(PackageManager::Scoop),
-            _ => None,
+    /// The capitalized name used in user-facing messages.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            PackageManager::Winget => "Winget",
+            PackageManager::Chocolatey => "Chocolatey",
+            PackageManager::Scoop => "Scoop",
         }
-    }
-
-    /// All supported managers, in a stable order.
-    pub fn all() -> [PackageManager; 3] {
-        [
-            PackageManager::Winget,
-            PackageManager::Chocolatey,
-            PackageManager::Scoop,
-        ]
     }
 }
 

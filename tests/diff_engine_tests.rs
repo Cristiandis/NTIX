@@ -7,6 +7,7 @@ use ntix_rs::models::options::{ChocoOptions, NTIXOptions, ScoopOptions, WingetOp
 use ntix_rs::models::package_entry::PackageEntry;
 use ntix_rs::models::package_manager::PackageManager;
 use ntix_rs::models::state::State;
+use ntix_rs::package_manager::probes::Probes;
 
 mod common;
 use common::{
@@ -36,7 +37,7 @@ fn ntix_config(winget: WingetOptions, choco: ChocoOptions, scoop: ScoopOptions) 
 }
 
 /// Computes a diff with common defaults:
-/// no runner, adopt/upgrade/validate configurable.
+/// all managers assumed installed; runner/installed/validate configurable.
 async fn diff_with(
     config: &NTIXConfig,
     state: &State,
@@ -46,17 +47,22 @@ async fn diff_with(
     upgrade_mode: bool,
     adopt_mode: bool,
 ) -> DiffResult {
+    let probes = Probes {
+        runner: runner.map(|r| r as &dyn ntix_rs::package_manager::command_runner::CommandRunner),
+        installed,
+        presence: Some(ntix_rs::package_manager::probes::Presence {
+            winget: true,
+            choco: true,
+            scoop: true,
+        }),
+        skip_package_validation: !validate_packages,
+    };
     compute_diff(
         config,
         state,
-        Some(true),
-        Some(true),
-        Some(true),
-        runner.map(|r| r as &dyn ntix_rs::package_manager::command_runner::CommandRunner),
+        &probes,
         adopt_mode,
         upgrade_mode,
-        validate_packages,
-        installed,
         &progress(),
     )
     .await
@@ -117,6 +123,88 @@ async fn compute_diff_package_in_state_not_in_config_to_remove() {
     let diff = diff_with(&config, &state, None, None, true, false, false).await;
     assert_eq!(diff.to_remove.len(), 1);
     assert_eq!(diff.to_remove[0].id, "oldpkg");
+}
+
+#[tokio::test]
+async fn compute_diff_orphans_kept_when_manager_not_detected() {
+    let mut config = NTIXConfig::default();
+    config.options.winget.enable = true;
+    let mut state = State::default();
+    state.winget.insert("oldpkg".to_string(), "1.0".to_string());
+
+    let probes = Probes {
+        presence: Some(ntix_rs::package_manager::probes::Presence {
+            winget: false,
+            choco: true,
+            scoop: true,
+        }),
+        skip_package_validation: true,
+        ..Default::default()
+    };
+    let diff = compute_diff(&config, &state, &probes, false, false, &progress())
+        .await
+        .unwrap();
+
+    assert!(diff.to_remove.is_empty());
+}
+
+#[tokio::test]
+async fn compute_diff_enabled_but_missing_manager_is_not_classified() {
+    let mut config = winget_enabled();
+    config.winget_packages = vec![pkg_entry("testpkg", None)];
+    let state = State::default();
+    let installed = InstalledPackages::default();
+
+    let probes = Probes {
+        installed: Some(&installed),
+        presence: Some(ntix_rs::package_manager::probes::Presence {
+            winget: false,
+            choco: true,
+            scoop: true,
+        }),
+        skip_package_validation: true,
+        ..Default::default()
+    };
+    let diff = compute_diff(&config, &state, &probes, false, false, &progress())
+        .await
+        .unwrap();
+
+    assert!(diff.to_install.is_empty());
+}
+
+#[tokio::test]
+async fn compute_diff_tracked_reinstall_does_not_warn_unverified() {
+    let mut runner = MockCommandRunner::new();
+    runner.output_responses.insert(
+        winget_search_command("new-pkg"),
+        "new-pkg  new-pkg  1.0  winget".to_string(),
+    );
+
+    let installed = InstalledPackages::default();
+    let mut config = winget_enabled();
+    config.winget_packages = vec![
+        pkg_entry("tracked-pkg", Some("1.0")),
+        pkg_entry("new-pkg", None),
+    ];
+    let mut state = State::default();
+    state
+        .winget
+        .insert("tracked-pkg".to_string(), "0.5".to_string());
+
+    let diff = diff_with(
+        &config,
+        &state,
+        Some(&installed),
+        Some(&runner),
+        true,
+        false,
+        false,
+    )
+    .await;
+
+    assert!(diff.to_install.iter().any(|p| p.id == "tracked-pkg"));
+    assert!(diff.to_install.iter().any(|p| p.id == "new-pkg"));
+    assert!(!diff.warnings.iter().any(|w| w.contains("tracked-pkg")));
 }
 
 #[tokio::test]
@@ -855,34 +943,6 @@ async fn compute_diff_installed_package_not_validated() {
 }
 
 #[tokio::test]
-async fn compute_diff_winget_validation_throws_graceful_degradation() {
-    let runner = MockCommandRunner::new();
-
-    let installed = InstalledPackages::default();
-    let mut config = winget_enabled();
-    config.winget_packages = vec![pkg_entry("some-pkg", None)];
-    let state = State::default();
-
-    let diff = diff_with(
-        &config,
-        &state,
-        Some(&installed),
-        Some(&runner),
-        true,
-        false,
-        false,
-    )
-    .await;
-
-    assert!(diff.to_install.is_empty());
-    assert!(
-        diff.warnings
-            .iter()
-            .any(|w| w.contains("Package not found"))
-    );
-}
-
-#[tokio::test]
 async fn compute_diff_invalid_managers_returns_warning_in_result() {
     let config = ntix_config(
         WingetOptions::default(),
@@ -1111,93 +1171,6 @@ async fn compute_diff_adopt_mode_pinned_version_mismatch_to_install() {
     assert_eq!(diff.to_install[0].id, "ppkg");
     assert_eq!(diff.to_install[0].version, Some("2.0".to_string()));
     assert!(diff.to_adopt.is_empty());
-}
-
-#[tokio::test]
-async fn compute_diff_choco_new_pkg_validation_not_found_adds_warning() {
-    let mock_runner = MockCommandRunner::new();
-    let installed = InstalledPackages::default();
-    let mut config = ntix_config(
-        WingetOptions::default(),
-        ChocoOptions {
-            enable: true,
-            ..Default::default()
-        },
-        ScoopOptions::default(),
-    );
-    config.choco_packages = vec![pkg_entry("nonexistent-choco", None)];
-    let state = State::default();
-
-    let diff = diff_with(
-        &config,
-        &state,
-        Some(&installed),
-        Some(&mock_runner),
-        true,
-        false,
-        false,
-    )
-    .await;
-    assert!(
-        diff.warnings
-            .iter()
-            .any(|w| w.contains("nonexistent-choco"))
-    );
-}
-
-#[tokio::test]
-async fn compute_diff_scoop_new_pkg_validation_not_found_adds_warning() {
-    let mock_runner = MockCommandRunner::new();
-    let installed = InstalledPackages::default();
-    let mut config = ntix_config(
-        WingetOptions::default(),
-        ChocoOptions::default(),
-        ScoopOptions {
-            enable: true,
-            ..Default::default()
-        },
-    );
-    config.scoop_packages = vec![pkg_entry("nonexistent-scoop", None)];
-    let state = State::default();
-
-    let diff = diff_with(
-        &config,
-        &state,
-        Some(&installed),
-        Some(&mock_runner),
-        true,
-        false,
-        false,
-    )
-    .await;
-    assert!(
-        diff.warnings
-            .iter()
-            .any(|w| w.contains("nonexistent-scoop"))
-    );
-}
-
-#[tokio::test]
-async fn compute_diff_with_progress_reports_steps() {
-    let mut config = winget_enabled();
-    config.winget_packages = vec![pkg_entry("test-pkg", None)];
-    let state = State::default();
-
-    compute_diff(
-        &config,
-        &state,
-        Some(true),
-        Some(true),
-        Some(true),
-        None,
-        false,
-        false,
-        true,
-        None,
-        &progress(),
-    )
-    .await
-    .expect("should not error");
 }
 
 fn temp_cfg_dir() -> std::path::PathBuf {

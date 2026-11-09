@@ -7,6 +7,10 @@ use crate::models::options::{ChocoOptions, ScoopOptions, WingetOptions};
 static SAFE_ID_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[a-zA-Z0-9._\-/]+$").unwrap());
 
+static SAFE_URL_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[a-zA-Z0-9._~/@:?\-]+$").unwrap());
+
+/// Package IDs end up inside command strings, so they must be injection-free.
 pub fn validate_id(id: &str) -> Result<(), Box<dyn std::error::Error>> {
     if id.trim().is_empty() {
         return Err(
@@ -18,6 +22,32 @@ pub fn validate_id(id: &str) -> Result<(), Box<dyn std::error::Error>> {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!("Package ID contains invalid characters: {id}"),
+        )
+        .into());
+    }
+
+    Ok(())
+}
+
+/// Bucket URLs are interpolated into command strings, so shell metacharacters
+/// (`&`, `|`, quotes, spaces, `%`) are rejected.
+pub fn validate_url(url: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if url.trim().is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "URL cannot be empty").into());
+    }
+
+    if url.starts_with('-') {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("URL cannot start with '-': {url}"),
+        )
+        .into());
+    }
+
+    if !SAFE_URL_PATTERN.is_match(url) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("URL contains invalid characters: {url}"),
         )
         .into());
     }
@@ -166,10 +196,12 @@ pub fn build_scoop_bucket_add(
     url: Option<&str>,
 ) -> Result<String, Box<dyn std::error::Error>> {
     validate_id(name)?;
-    if let Some(u) = url {
-        Ok(format!("scoop bucket add {name} {u}"))
-    } else {
-        Ok(format!("scoop bucket add {name}"))
+    match url {
+        Some(url) => {
+            validate_url(url)?;
+            Ok(format!("scoop bucket add {name} {url}"))
+        }
+        None => Ok(format!("scoop bucket add {name}")),
     }
 }
 

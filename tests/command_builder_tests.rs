@@ -328,6 +328,25 @@ fn build_scoop_bucket_add_with_url() {
 }
 
 #[test]
+fn build_scoop_bucket_add_rejects_unsafe_url_characters() {
+    for url in [
+        "",
+        "--help",
+        "https://example.com/a b",
+        "https://example.com/a&b",
+        "https://example.com/a|b",
+        "https://example.com/a\"b",
+        "https://example.com/a%b",
+        "https://example.com/a\nb",
+    ] {
+        assert!(
+            command_builder::build_scoop_bucket_add("ntix", Some(url)).is_err(),
+            "URL should be rejected: {url:?}"
+        );
+    }
+}
+
+#[test]
 fn build_scoop_bucket_list_returns_command() {
     let cmd = command_builder::build_scoop_bucket_list();
     assert_eq!(cmd, "scoop bucket list");

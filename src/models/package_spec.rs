@@ -1,6 +1,6 @@
 use crate::models::package_manager::PackageManager;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct PackageSpec {
     pub id: String,
     pub version: Option<String>,

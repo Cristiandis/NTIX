@@ -1,3 +1,5 @@
+use crate::models::package_manager::PackageManager;
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct WingetOptions {
     pub enable: bool,
@@ -67,4 +69,15 @@ pub struct NTIXOptions {
     pub winget: WingetOptions,
     pub chocolatey: ChocoOptions,
     pub scoop: ScoopOptions,
+}
+
+impl NTIXOptions {
+    /// Whether the user enabled `manager` in the config's options table.
+    pub fn enabled(&self, manager: PackageManager) -> bool {
+        match manager {
+            PackageManager::Winget => self.winget.enable,
+            PackageManager::Chocolatey => self.chocolatey.enable,
+            PackageManager::Scoop => self.scoop.enable,
+        }
+    }
 }

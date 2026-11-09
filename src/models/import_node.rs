@@ -15,7 +15,6 @@ impl ImportNodeBuilder {
         }))
     }
 
-    /// Converts a builder node (and its whole subtree) into a plain, owned `ImportNode`.
     pub(crate) fn to_owned_tree(node: &ImportNodeBuilderRef) -> ImportNode {
         let node_ref = node.borrow();
         ImportNode {

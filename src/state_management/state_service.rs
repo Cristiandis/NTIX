@@ -9,34 +9,31 @@ use std::{
 use crate::models::state::State;
 use crate::paths;
 
-pub const DEFAULT_MAX_RETRIES: u32 = 3;
+const MAX_RETRIES: u32 = 3;
 
 pub fn get_state_path() -> Result<PathBuf, Box<dyn Error>> {
     Ok(paths::local_app_data_path()?.join("state.json"))
 }
 
-pub fn load_state(path: Option<&Path>) -> Option<State> {
-    let state_path = match path {
-        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
-        _ => get_state_path().ok()?,
-    };
+/// Loads the state file from the default location. `None` when missing or
+/// unreadable (the caller must then treat the system as unmanaged so far).
+pub fn load_state() -> Option<State> {
+    let path = get_state_path().ok()?;
+    load_state_from(&path)
+}
 
-    let temp_path = PathBuf::from(format!("{}.tmp", state_path.display()));
-    if temp_path.is_file() {
-        let _ = fs::remove_file(&temp_path);
-    }
+pub fn load_state_from(path: &Path) -> Option<State> {
+    let temp_path = temp_path(path);
+    remove_file_if_exists(&temp_path);
 
-    if !state_path.is_file() {
+    if !path.is_file() {
         return None;
     }
 
-    let json = match fs::read_to_string(&state_path) {
+    let json = match fs::read_to_string(path) {
         Ok(json) => json,
         Err(e) => {
-            eprintln!(
-                "[NTIX] Could not read state file {}: {e}",
-                state_path.display()
-            );
+            eprintln!("[NTIX] Could not read state file {}: {e}", path.display());
             return None;
         }
     };
@@ -45,7 +42,7 @@ pub fn load_state(path: Option<&Path>) -> Option<State> {
         Err(e) => {
             eprintln!(
                 "[NTIX] Could not parse state file {} (corrupt?). Starting from empty state: {e}",
-                state_path.display()
+                path.display()
             );
             return None;
         }
@@ -56,42 +53,38 @@ pub fn load_state(path: Option<&Path>) -> Option<State> {
     Some(state)
 }
 
-pub fn save_state(
-    state: &State,
-    path: Option<&Path>,
-    max_retries: u32,
-) -> Result<bool, Box<dyn Error>> {
-    let state_path = match path {
-        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
-        _ => get_state_path()?,
-    };
+pub fn save_state_to(state: &State, path: &Path) -> Result<bool, Box<dyn Error>> {
+    let temp_path = temp_path(path);
 
-    let temp_path = PathBuf::from(format!("{}.tmp", state_path.display()));
-
-    if let Some(parent) = state_path.parent() {
+    if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
 
-    let json = serde_json::to_string_pretty(&state)?;
+    let json = serde_json::to_string_pretty(state)?;
 
-    for attempt in 1..=max_retries {
-        let write_result =
-            fs::write(&temp_path, &json).and_then(|_| fs::rename(&temp_path, &state_path));
+    for attempt in 1..=MAX_RETRIES {
+        let write_result = fs::write(&temp_path, &json).and_then(|_| fs::rename(&temp_path, path));
 
-        if temp_path.is_file() {
-            let _ = fs::remove_file(&temp_path);
+        remove_file_if_exists(&temp_path);
+
+        if write_result.is_ok() {
+            return Ok(true);
         }
 
-        match write_result {
-            Ok(()) => return Ok(true),
-            Err(_) => {
-                if attempt >= max_retries {
-                    return Ok(false);
-                }
-                thread::sleep(Duration::from_millis(50 * attempt as u64));
-            }
+        if attempt < MAX_RETRIES {
+            thread::sleep(Duration::from_millis(50 * attempt as u64));
         }
     }
 
     Ok(false)
+}
+
+fn temp_path(path: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.tmp", path.display()))
+}
+
+fn remove_file_if_exists(path: &Path) {
+    if path.is_file() {
+        let _ = fs::remove_file(path);
+    }
 }

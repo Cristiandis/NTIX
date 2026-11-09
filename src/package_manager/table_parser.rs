@@ -1,5 +1,3 @@
-use anyhow::{Context, Result};
-
 fn parse_header(text: &str) -> Vec<usize> {
     let mut starts = Vec::new();
     let mut in_word = false;
@@ -42,12 +40,14 @@ fn char_index_to_byte(line: &str, char_idx: usize) -> usize {
         .unwrap_or(line.len())
 }
 
-pub fn parse_table<'a>(lines: impl Iterator<Item = &'a str>) -> Result<(usize, Vec<String>)> {
+pub fn parse_table<'a>(
+    lines: impl Iterator<Item = &'a str>,
+) -> Result<(usize, Vec<String>), Box<dyn std::error::Error>> {
     let mut lines = lines.filter(|x| !x.is_empty());
-    let mut line1 = lines.next().context("Invalid output")?;
+    let mut line1 = lines.next().ok_or("Invalid output")?;
     let mut line2: &str;
     loop {
-        line2 = lines.next().context("Invalid output")?;
+        line2 = lines.next().ok_or("Invalid output")?;
         if line2.starts_with("--") {
             break;
         }
