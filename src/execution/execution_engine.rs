@@ -1,9 +1,8 @@
-use std::collections::HashMap;
 use std::path::Path;
 
 use crate::models::{
-    diff_result::DiffResult, manager_validation::ValidationResult, options::NTIXOptions,
-    package_manager::PackageManager, package_spec::PackageSpec, state::State,
+    config_file::ConfigFileEntry, diff_result::DiffResult, manager_validation::ValidationResult,
+    options::NTIXOptions, package_manager::PackageManager, package_spec::PackageSpec, state::State,
 };
 use crate::package_manager::{
     choco_ops, command_builder,
@@ -13,16 +12,22 @@ use crate::package_manager::{
 };
 use crate::state_management::state_service;
 
+/// Output sinks for an apply run: where progress lines and error lines go.
+#[derive(Default)]
+pub struct Output<'a> {
+    pub line: Option<LineCallback<'a>>,
+    pub error: Option<LineCallback<'a>>,
+}
+
 async fn run_built_command(
     cmd: &dyn CommandRunner,
     build_result: Result<String, Box<dyn std::error::Error>>,
-    on_output: Option<LineCallback<'_>>,
-    on_error: Option<LineCallback<'_>>,
+    output: &Output<'_>,
 ) -> bool {
     match build_result {
-        Ok(built_cmd) => cmd.run(&built_cmd, on_output, on_error).await == 0,
+        Ok(built_cmd) => cmd.run(&built_cmd, output.line, output.error).await == 0,
         Err(e) => {
-            if let Some(cb) = on_error {
+            if let Some(cb) = output.error {
                 cb(&format!("Failed to build command: {e}"));
             }
             false
@@ -30,37 +35,102 @@ async fn run_built_command(
     }
 }
 
-/// Queries the installed-package list for the given manager. `None` means the
-/// query itself failed, so we cannot trust the result.
-async fn installed_map(
+/// `Some(true)` when the installed list contains `id`, `Some(false)` when it
+/// does not, `None` when the list could not be read.
+async fn installed_state(
     cmd: &dyn CommandRunner,
     source: PackageManager,
-) -> Option<HashMap<String, String>> {
-    match source {
-        PackageManager::Winget => winget_ops::get_installed_packages(cmd).await.ok(),
-        PackageManager::Chocolatey => choco_ops::get_installed_packages(cmd).await.ok(),
-        PackageManager::Scoop => scoop_ops::get_installed_packages(cmd).await.ok(),
+    id: &str,
+) -> Option<bool> {
+    let packages = match source {
+        PackageManager::Winget => winget_ops::get_installed_packages(cmd).await,
+        PackageManager::Chocolatey => choco_ops::get_installed_packages(cmd).await,
+        PackageManager::Scoop => scoop_ops::get_installed_packages(cmd).await,
+    }
+    .ok()?;
+    Some(packages.keys().any(|k| k.eq_ignore_ascii_case(id)))
+}
+
+#[derive(Clone, Copy)]
+enum Operation {
+    Install,
+    Upgrade,
+    Remove,
+}
+
+fn build_package_command(
+    operation: Operation,
+    pkg: &PackageSpec,
+    options: &NTIXOptions,
+) -> Result<String, Box<dyn std::error::Error>> {
+    match pkg.source {
+        PackageManager::Winget => match operation {
+            Operation::Install => command_builder::build_winget_install(
+                &pkg.id,
+                pkg.version.as_deref(),
+                options.winget,
+            ),
+            Operation::Upgrade => command_builder::build_winget_upgrade(&pkg.id, options.winget),
+            Operation::Remove => command_builder::build_winget_uninstall(&pkg.id, options.winget),
+        },
+        PackageManager::Chocolatey => match operation {
+            Operation::Install => command_builder::build_choco_install(
+                &pkg.id,
+                pkg.version.as_deref(),
+                options.chocolatey.clone(),
+            ),
+            Operation::Upgrade => {
+                command_builder::build_choco_upgrade(&pkg.id, options.chocolatey.clone())
+            }
+            Operation::Remove => {
+                command_builder::build_choco_uninstall(&pkg.id, options.chocolatey.clone())
+            }
+        },
+        PackageManager::Scoop => match operation {
+            Operation::Install => command_builder::build_scoop_install(
+                &pkg.id,
+                pkg.version.as_deref(),
+                options.scoop.clone(),
+            ),
+            Operation::Upgrade => {
+                command_builder::build_scoop_upgrade(&pkg.id, options.scoop.clone())
+            }
+            Operation::Remove => {
+                command_builder::build_scoop_uninstall(&pkg.id, options.scoop.clone())
+            }
+        },
     }
 }
 
-/// Winget exits nonzero when the requested package is already installed at the
-/// latest version ("no updates available"), which is a successful outcome.
-/// Treat it as such by re-checking the installed list.
-async fn verify_installed(cmd: &dyn CommandRunner, source: PackageManager, id: &str) -> bool {
-    match installed_map(cmd, source).await {
-        Some(packages) => packages.keys().any(|k| k.eq_ignore_ascii_case(id)),
-        None => false,
+/// Runs the command for one package operation. Managers exit nonzero for
+/// "already at requested state", so failure falls back to checking the
+/// installed list before the operation counts as failed.
+async fn run_package_operation(
+    cmd: &dyn CommandRunner,
+    operation: Operation,
+    pkg: &PackageSpec,
+    options: &NTIXOptions,
+    output: &Output<'_>,
+) -> bool {
+    let verb = match operation {
+        Operation::Install => "Installing",
+        Operation::Upgrade => "Upgrading",
+        Operation::Remove => "Removing",
+    };
+    if let Some(cb) = output.line {
+        cb(&format!("{verb} {}:{}...", pkg.source, pkg.id));
     }
-}
 
-/// Some managers exit nonzero when uninstalling a package that is already
-/// gone. Treat the removal as successful only when the installed list
-/// confirms the package is absent.
-async fn verify_not_installed(cmd: &dyn CommandRunner, source: PackageManager, id: &str) -> bool {
-    match installed_map(cmd, source).await {
-        Some(packages) => packages.keys().all(|k| !k.eq_ignore_ascii_case(id)),
-        None => false,
+    let mut success =
+        run_built_command(cmd, build_package_command(operation, pkg, options), output).await;
+    if !success {
+        let installed = installed_state(cmd, pkg.source, &pkg.id).await;
+        success = match operation {
+            Operation::Remove => installed == Some(false),
+            Operation::Install | Operation::Upgrade => installed == Some(true),
+        };
     }
+    success
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -72,25 +142,24 @@ pub async fn apply_diff(
     stop_on_failure: bool,
     validation: &ValidationResult,
     apply_config: bool,
-    on_output: Option<LineCallback<'_>>,
-    on_error: Option<LineCallback<'_>>,
+    output: Output<'_>,
     runner: Option<&dyn CommandRunner>,
 ) -> bool {
     let cmd: &dyn CommandRunner = runner.unwrap_or(&ProcessCommandRunner);
 
-    for w in &validation.warnings {
-        if !diff.warnings.contains(w)
-            && let Some(cb) = on_error
+    // `diff` usually already carries these warnings (it was built from the same
+    // validation); only print the ones it does not have, so none appears twice.
+    for warning in &validation.warnings {
+        if !diff.warnings.contains(warning)
+            && let Some(cb) = output.error
         {
-            cb(w);
+            cb(warning);
         }
     }
 
     let mut all_ok = true;
 
-    if options.scoop.enable
-        && !apply_buckets(cmd, state, state_path, diff, on_output, on_error).await
-    {
+    if options.scoop.enable && !apply_buckets(cmd, state, state_path, diff, &output).await {
         all_ok = false;
     }
 
@@ -101,7 +170,7 @@ pub async fn apply_diff(
     ] {
         for pkg in pkgs {
             if !run_operation(
-                cmd, options, validation, state, state_path, operation, pkg, on_output, on_error,
+                cmd, options, validation, state, state_path, operation, pkg, &output,
             )
             .await
             {
@@ -114,14 +183,14 @@ pub async fn apply_diff(
     }
 
     for pkg in &diff.to_adopt {
-        if let Some(cb) = on_output {
+        if let Some(cb) = output.line {
             cb(&format!("Adopting {}:{}...", pkg.source, pkg.id));
         }
         update_state(state, pkg, true);
     }
 
     if !diff.to_adopt.is_empty() {
-        save_state_or_warn(state, state_path, on_error);
+        save_state_or_warn(state, state_path, output.error);
     }
 
     if apply_config {
@@ -130,32 +199,19 @@ pub async fn apply_diff(
             &diff.config_files_to_create,
             &diff.config_files_to_update,
             &diff.config_files_no_longer_managed,
-            on_output,
-            on_error,
+            &output,
         );
-        save_state_or_warn(state, state_path, on_error);
+        save_state_or_warn(state, state_path, output.error);
     }
 
     all_ok
 }
 
-fn save_state_or_warn(
-    state: &State,
-    state_path: &Path,
-    on_error: Option<LineCallback<'_>>,
-) -> bool {
-    let ok = match state_service::save_state(
-        state,
-        Some(state_path),
-        state_service::DEFAULT_MAX_RETRIES,
-    ) {
-        Ok(true) => true,
-        Ok(false) | Err(_) => false,
-    };
-    if !ok && let Some(cb) = on_error {
+fn save_state_or_warn(state: &State, state_path: &Path, on_error: Option<LineCallback<'_>>) {
+    let saved = state_service::save_state_to(state, state_path).unwrap_or(false);
+    if !saved && let Some(cb) = on_error {
         cb("Failed to save state to disk. Changes may not persist across runs.");
     }
-    ok
 }
 
 /// Copies managed config files from their resolved sources to their destinations
@@ -163,22 +219,21 @@ fn save_state_or_warn(
 /// are dropped from tracking without touching the file on disk.
 fn apply_config_files(
     state: &mut State,
-    to_create: &[crate::models::config_file::ConfigFileEntry],
-    to_update: &[crate::models::config_file::ConfigFileEntry],
+    to_create: &[ConfigFileEntry],
+    to_update: &[ConfigFileEntry],
     no_longer_managed: &[String],
-    on_output: Option<LineCallback<'_>>,
-    on_error: Option<LineCallback<'_>>,
+    output: &Output<'_>,
 ) {
     for entry in to_create.iter().chain(to_update.iter()) {
         let dest_str = entry.dest.to_string_lossy().to_string();
-        if let Some(cb) = on_output {
+        if let Some(cb) = output.line {
             cb(&format!("Applying config file: {dest_str}"));
         }
 
         match std::fs::read(&entry.src) {
             Ok(src_bytes) => {
                 if let Err(msg) = ensure_parent_dir(&entry.dest) {
-                    if let Some(cb) = on_error {
+                    if let Some(cb) = output.error {
                         cb(&format!(
                             "Failed to create directory for config file {dest_str}: {msg}"
                         ));
@@ -193,14 +248,14 @@ fn apply_config_files(
                             .insert(dest_str, crate::hash::sha256_hex(&src_bytes));
                     }
                     Err(e) => {
-                        if let Some(cb) = on_error {
+                        if let Some(cb) = output.error {
                             cb(&format!("Failed to write config file {dest_str}: {e}"));
                         }
                     }
                 }
             }
             Err(e) => {
-                if let Some(cb) = on_error {
+                if let Some(cb) = output.error {
                     cb(&format!(
                         "Failed to read config file source '{}': {e}",
                         entry.src.display()
@@ -217,7 +272,7 @@ fn apply_config_files(
 
 /// Creates the parent directory of `dest` if it exists and is not the
 /// filesystem root. Returns an error message on failure.
-fn ensure_parent_dir(dest: &std::path::Path) -> Result<(), String> {
+fn ensure_parent_dir(dest: &Path) -> Result<(), String> {
     let Some(parent) = dest.parent() else {
         return Ok(());
     };
@@ -232,56 +287,68 @@ async fn apply_buckets(
     state: &mut State,
     state_path: &Path,
     diff: &DiffResult,
-    on_output: Option<LineCallback<'_>>,
-    on_error: Option<LineCallback<'_>>,
+    output: &Output<'_>,
 ) -> bool {
-    let mut all_ok = true;
-
-    for bucket in &diff.buckets_to_add {
-        if let Some(cb) = on_output {
-            cb(&format!("Adding scoop bucket: {}...", bucket.name));
-        }
-        let build_result =
-            command_builder::build_scoop_bucket_add(&bucket.name, bucket.url.as_deref());
-        let ok = run_built_command(cmd, build_result, None, None).await;
-        if !ok {
-            if let Some(cb) = on_error {
-                cb(&format!("Failed to add scoop bucket: {}", bucket.name));
-            }
-            all_ok = false;
-        } else {
-            state
-                .scoop_buckets
-                .insert(bucket.name.clone(), bucket.url.clone());
-            save_state_or_warn(state, state_path, on_error);
-        }
+    #[derive(Clone, Copy)]
+    enum BucketOperation {
+        Add,
+        Remove,
     }
 
-    for bucket in &diff.buckets_to_remove {
-        if let Some(cb) = on_output {
-            cb(&format!("Removing scoop bucket: {}...", bucket.name));
+    let mut all_ok = true;
+    // Bucket commands stay silent; only progress and failure lines are shown.
+    let silent = Output::default();
+
+    let operations = diff
+        .buckets_to_add
+        .iter()
+        .map(|bucket| (bucket, BucketOperation::Add))
+        .chain(
+            diff.buckets_to_remove
+                .iter()
+                .map(|bucket| (bucket, BucketOperation::Remove)),
+        );
+
+    for (bucket, operation) in operations {
+        let (progress_verb, failure_verb) = match operation {
+            BucketOperation::Add => ("Adding", "add"),
+            BucketOperation::Remove => ("Removing", "remove"),
+        };
+        if let Some(cb) = output.line {
+            cb(&format!("{progress_verb} scoop bucket: {}...", bucket.name));
         }
-        let build_result = command_builder::build_scoop_bucket_remove(&bucket.name);
-        let ok = run_built_command(cmd, build_result, None, None).await;
-        if !ok {
-            if let Some(cb) = on_error {
-                cb(&format!("Failed to remove scoop bucket: {}", bucket.name));
+
+        let build_result = match operation {
+            BucketOperation::Add => {
+                command_builder::build_scoop_bucket_add(&bucket.name, bucket.url.as_deref())
+            }
+            BucketOperation::Remove => command_builder::build_scoop_bucket_remove(&bucket.name),
+        };
+
+        if run_built_command(cmd, build_result, &silent).await {
+            match operation {
+                BucketOperation::Add => {
+                    state
+                        .scoop_buckets
+                        .insert(bucket.name.clone(), bucket.url.clone());
+                }
+                BucketOperation::Remove => {
+                    state.scoop_buckets.remove(&bucket.name);
+                }
+            }
+            save_state_or_warn(state, state_path, output.error);
+        } else {
+            if let Some(cb) = output.error {
+                cb(&format!(
+                    "Failed to {failure_verb} scoop bucket: {}",
+                    bucket.name
+                ));
             }
             all_ok = false;
-        } else {
-            state.scoop_buckets.remove(&bucket.name);
-            save_state_or_warn(state, state_path, on_error);
         }
     }
 
     all_ok
-}
-
-#[derive(Clone, Copy)]
-enum Operation {
-    Install,
-    Upgrade,
-    Remove,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -293,144 +360,41 @@ async fn run_operation(
     state_path: &Path,
     operation: Operation,
     pkg: &PackageSpec,
-    on_output: Option<LineCallback<'_>>,
-    on_error: Option<LineCallback<'_>>,
+    output: &Output<'_>,
 ) -> bool {
     let installs = matches!(operation, Operation::Install | Operation::Upgrade);
-    if installs && !is_enabled(pkg.source, options, validation) {
+    if installs && !(options.enabled(pkg.source) && validation.installed(pkg.source)) {
         return true;
     }
 
-    let verb = match operation {
-        Operation::Install => "Installing",
-        Operation::Upgrade => "Upgrading",
-        Operation::Remove => "Removing",
-    };
-
-    if let Some(cb) = on_output {
-        cb(&format!("{verb} {}:{}...", pkg.source, pkg.id));
-    }
-
-    let success = match pkg.source {
-        PackageManager::Winget => {
-            let build_result = match operation {
-                Operation::Install => command_builder::build_winget_install(
-                    &pkg.id,
-                    pkg.version.as_deref(),
-                    options.winget,
-                ),
-                Operation::Upgrade => {
-                    command_builder::build_winget_upgrade(&pkg.id, options.winget)
-                }
-                Operation::Remove => {
-                    command_builder::build_winget_uninstall(&pkg.id, options.winget)
-                }
-            };
-            let mut result = run_built_command(cmd, build_result, on_output, on_error).await;
-            if !result {
-                result = match operation {
-                    Operation::Remove => verify_not_installed(cmd, pkg.source, &pkg.id).await,
-                    Operation::Install | Operation::Upgrade => {
-                        verify_installed(cmd, pkg.source, &pkg.id).await
-                    }
-                };
-            }
-            result
-        }
-        PackageManager::Chocolatey => {
-            let build_result = match operation {
-                Operation::Install => command_builder::build_choco_install(
-                    &pkg.id,
-                    pkg.version.as_deref(),
-                    options.chocolatey.clone(),
-                ),
-                Operation::Upgrade => {
-                    command_builder::build_choco_upgrade(&pkg.id, options.chocolatey.clone())
-                }
-                Operation::Remove => {
-                    command_builder::build_choco_uninstall(&pkg.id, options.chocolatey.clone())
-                }
-            };
-            let mut result = run_built_command(cmd, build_result, on_output, on_error).await;
-            if !result {
-                result = match operation {
-                    Operation::Remove => verify_not_installed(cmd, pkg.source, &pkg.id).await,
-                    Operation::Install | Operation::Upgrade => {
-                        verify_installed(cmd, pkg.source, &pkg.id).await
-                    }
-                };
-            }
-            result
-        }
-        PackageManager::Scoop => {
-            let build_result = match operation {
-                Operation::Install => command_builder::build_scoop_install(
-                    &pkg.id,
-                    pkg.version.as_deref(),
-                    options.scoop.clone(),
-                ),
-                Operation::Upgrade => {
-                    command_builder::build_scoop_upgrade(&pkg.id, options.scoop.clone())
-                }
-                Operation::Remove => {
-                    command_builder::build_scoop_uninstall(&pkg.id, options.scoop.clone())
-                }
-            };
-            let mut result = run_built_command(cmd, build_result, on_output, on_error).await;
-            if !result {
-                result = match operation {
-                    Operation::Remove => verify_not_installed(cmd, pkg.source, &pkg.id).await,
-                    Operation::Install | Operation::Upgrade => {
-                        verify_installed(cmd, pkg.source, &pkg.id).await
-                    }
-                };
-            }
-            result
-        }
-    };
+    let success = run_package_operation(cmd, operation, pkg, options, output).await;
 
     if success {
         update_state(state, pkg, installs);
-        save_state_or_warn(state, state_path, on_error);
+        save_state_or_warn(state, state_path, output.error);
         true
     } else {
-        if let Some(cb) = on_error {
-            cb(&format!(
-                "Failed to {} {}:{}",
-                verb.to_lowercase(),
-                pkg.source,
-                pkg.id
-            ));
+        let verb = match operation {
+            Operation::Install => "install",
+            Operation::Upgrade => "upgrade",
+            Operation::Remove => "remove",
+        };
+        if let Some(cb) = output.error {
+            cb(&format!("Failed to {verb} {}:{}", pkg.source, pkg.id));
         }
         false
     }
 }
 
-fn is_enabled(
-    source: PackageManager,
-    options: &NTIXOptions,
-    validation: &ValidationResult,
-) -> bool {
-    match source {
-        PackageManager::Winget => options.winget.enable && validation.winget_installed,
-        PackageManager::Chocolatey => options.chocolatey.enable && validation.choco_installed,
-        PackageManager::Scoop => options.scoop.enable && validation.scoop_installed,
-    }
-}
-
 fn update_state(state: &mut State, pkg: &PackageSpec, installed: bool) {
-    let dict = match pkg.source {
-        PackageManager::Winget => &mut state.winget,
-        PackageManager::Chocolatey => &mut state.chocolatey,
-        PackageManager::Scoop => &mut state.scoop,
-    };
+    let packages = state.packages_mut(pkg.source);
 
     if installed {
-        dict.insert(
+        packages.insert(
             pkg.id.to_lowercase(),
             pkg.version.clone().unwrap_or_else(|| "latest".to_string()),
         );
     } else {
-        dict.retain(|key, _| !key.eq_ignore_ascii_case(&pkg.id));
+        packages.retain(|key, _| !key.eq_ignore_ascii_case(&pkg.id));
     }
 }

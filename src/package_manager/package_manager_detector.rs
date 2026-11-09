@@ -1,238 +1,162 @@
 use std::collections::HashMap;
 
-use crate::models::installed_packages::InstalledPackages;
-use crate::models::installed_packages::UpgradeInfo;
-use crate::models::{ntix_config::NTIXConfig, options::NTIXOptions};
+use futures::future::join_all;
+
+use crate::models::installed_packages::{InstalledPackages, UpgradeInfo};
+use crate::models::manager_validation::ValidationResult;
+use crate::models::ntix_config::NTIXConfig;
+use crate::models::package_manager::PackageManager;
 use crate::package_manager::choco_ops;
 use crate::package_manager::command_runner::CommandRunner;
+use crate::package_manager::probes::Presence;
 use crate::package_manager::process_command_runner::ProcessCommandRunner;
 use crate::package_manager::scoop_ops;
 use crate::package_manager::winget_ops;
 
-pub use crate::models::manager_validation::ValidationResult;
-
-pub async fn validate_managers_async(
-    options: &NTIXOptions,
+pub async fn validate_managers(
     config: &NTIXConfig,
-    winget_installed: Option<bool>,
-    choco_installed: Option<bool>,
-    scoop_installed: Option<bool>,
     runner: Option<&dyn CommandRunner>,
+    presence: Option<Presence>,
 ) -> ValidationResult {
     let cmd: &dyn CommandRunner = runner.unwrap_or(&ProcessCommandRunner);
-    let (choco_installed, scoop_installed) =
-        check_choco_scoop(cmd, choco_installed, scoop_installed).await;
 
-    let winget_installed = match winget_installed {
-        Some(v) => v,
+    let (winget_installed, choco_installed, scoop_installed) = match presence {
+        Some(presence) => (presence.winget, presence.choco, presence.scoop),
         None => {
-            let detected = winget_ops::is_installed(cmd).await;
-            if options.winget.enable && !detected {
-                winget_ops::ensure_installed(cmd).await;
-                winget_ops::is_installed(cmd).await
-            } else {
-                detected
-            }
+            let winget = detect_winget(cmd, config.options.winget.enable).await;
+            let (choco, scoop) =
+                tokio::join!(choco_ops::is_installed(cmd), scoop_ops::is_installed(cmd));
+            (winget, choco, scoop)
         }
     };
 
-    ValidationResult {
-        warnings: collect_warnings(
-            options,
-            config,
-            winget_installed,
-            choco_installed,
-            scoop_installed,
-        ),
+    let mut result = ValidationResult {
+        warnings: Vec::new(),
         winget_installed,
         choco_installed,
         scoop_installed,
+    };
+    result.warnings = collect_warnings(config, &result);
+    result
+}
+
+/// Winget is the only manager ntix installs on the user's behalf, so it has an
+/// extra detect -> install -> detect pass when enabled but missing.
+async fn detect_winget(cmd: &dyn CommandRunner, enabled: bool) -> bool {
+    let detected = winget_ops::is_installed(cmd).await;
+    if enabled && !detected {
+        winget_ops::ensure_installed(cmd).await;
+        winget_ops::is_installed(cmd).await
+    } else {
+        detected
     }
 }
 
-async fn check_choco_scoop(
-    runner: &dyn CommandRunner,
-    choco_override: Option<bool>,
-    scoop_override: Option<bool>,
-) -> (bool, bool) {
-    let choco_installed = match choco_override {
-        Some(v) => v,
-        None => choco_ops::is_installed(runner).await,
-    };
-    let scoop_installed = match scoop_override {
-        Some(v) => v,
-        None => scoop_ops::is_installed(runner).await,
-    };
-    (choco_installed, scoop_installed)
-}
+pub fn collect_warnings(config: &NTIXConfig, validation: &ValidationResult) -> Vec<String> {
+    const INSTALL_HINTS: [(PackageManager, &str, &str, &str); 3] = [
+        (
+            PackageManager::Chocolatey,
+            "https://chocolatey.org/install",
+            "",
+            "",
+        ),
+        (
+            PackageManager::Scoop,
+            "https://scoop.sh",
+            "",
+            " and buckets",
+        ),
+        (
+            PackageManager::Winget,
+            "https://github.com/microsoft/winget-cli",
+            " Auto-install failed.",
+            "",
+        ),
+    ];
 
-pub fn collect_warnings(
-    options: &NTIXOptions,
-    config: &NTIXConfig,
-    winget_installed: bool,
-    choco_installed: bool,
-    scoop_installed: bool,
-) -> Vec<String> {
     let mut warnings = Vec::new();
 
-    if options.chocolatey.enable && !choco_installed {
-        warnings.push(
-            "[warn] Chocolatey is enabled but not installed. Skipping Chocolatey packages. Install from https://chocolatey.org/install".to_string(),
-        );
+    for (manager, url, install_note, skip_scope) in INSTALL_HINTS {
+        if config.options.enabled(manager) && !validation.installed(manager) {
+            let name = manager.display_name();
+            warnings.push(format!(
+                "[warn] {name} is enabled but not installed.{install_note} Skipping {name} packages{skip_scope}. Install from {url}"
+            ));
+        }
     }
 
-    if options.scoop.enable && !scoop_installed {
-        warnings.push(
-            "[warn] Scoop is enabled but not installed. Skipping Scoop packages and buckets. Install from https://scoop.sh".to_string(),
-        );
-    }
-
-    if options.winget.enable && !winget_installed {
-        warnings.push(
-            "[warn] Winget is enabled but not installed. Auto-install failed. Skipping Winget packages. Install from https://github.com/microsoft/winget-cli".to_string(),
-        );
-    }
-
-    if !config.choco_packages.is_empty() && !options.chocolatey.enable {
-        warnings.push(
-            "[warn] Chocolatey packages declared but chocolatey not enabled in options".to_string(),
-        );
-    }
-
-    if !config.scoop_packages.is_empty() && !options.scoop.enable {
-        warnings
-            .push("[warn] Scoop packages declared but scoop not enabled in options".to_string());
-    }
-
-    if !config.winget_packages.is_empty() && !options.winget.enable {
-        warnings
-            .push("[warn] Winget packages declared but winget not enabled in options".to_string());
+    for (manager, _, _, _) in INSTALL_HINTS {
+        if !config.packages(manager).is_empty() && !config.options.enabled(manager) {
+            warnings.push(format!(
+                "[warn] {} packages declared but {} not enabled in options",
+                manager.display_name(),
+                manager
+            ));
+        }
     }
 
     warnings
 }
 
-pub async fn get_installed_packages_async(runner: Option<&dyn CommandRunner>) -> InstalledPackages {
+pub async fn get_installed_packages(runner: Option<&dyn CommandRunner>) -> InstalledPackages {
     let cmd: &dyn CommandRunner = runner.unwrap_or(&ProcessCommandRunner);
 
-    let mut result = InstalledPackages::default();
-
-    match winget_ops::get_installed_packages(cmd).await {
-        Ok(pkgs) => {
-            for (id, ver) in pkgs {
-                result.winget.insert(id, ver);
-            }
-        }
-        Err(e) => {
-            eprintln!("[NTIX] Winget detection failed: {e}");
-        }
-    }
-
-    let (choco_pkgs, scoop_pkgs) = tokio::join!(
-        async {
-            match choco_ops::get_installed_packages(cmd).await {
-                Ok(pkgs) => pkgs,
-                Err(e) => {
-                    eprintln!("[NTIX] Chocolatey detection failed: {e}");
-                    HashMap::new()
-                }
-            }
-        },
-        async {
-            match scoop_ops::get_installed_packages(cmd).await {
-                Ok(pkgs) => pkgs,
-                Err(e) => {
-                    eprintln!("[NTIX] Scoop detection failed: {e}");
-                    HashMap::new()
-                }
-            }
-        }
+    let (winget, choco, scoop) = tokio::join!(
+        winget_ops::get_installed_packages(cmd),
+        choco_ops::get_installed_packages(cmd),
+        scoop_ops::get_installed_packages(cmd)
     );
-    for (id, ver) in choco_pkgs {
-        result.chocolatey.insert(id, ver);
-    }
-    for (id, ver) in scoop_pkgs {
-        result.scoop.insert(id, ver);
+
+    let mut result = InstalledPackages::default();
+    for (manager, outcome) in [
+        (PackageManager::Winget, winget),
+        (PackageManager::Chocolatey, choco),
+        (PackageManager::Scoop, scoop),
+    ] {
+        match outcome {
+            Ok(packages) => {
+                result.packages_mut(manager).extend(packages);
+            }
+            Err(e) => eprintln!("[NTIX] {} detection failed: {e}", manager.display_name()),
+        }
     }
 
     result
 }
 
-pub async fn get_winget_upgradable_packages_async(
+/// Returns the upgradable packages reported by `manager`; a failed winget
+/// query degrades to an empty list.
+pub async fn get_upgradable_packages(
+    manager: PackageManager,
     runner: Option<&dyn CommandRunner>,
 ) -> HashMap<String, UpgradeInfo> {
     let cmd: &dyn CommandRunner = runner.unwrap_or(&ProcessCommandRunner);
-    winget_ops::get_upgradable_packages(cmd)
-        .await
-        .unwrap_or_default()
+    match manager {
+        PackageManager::Winget => winget_ops::get_upgradable_packages(cmd)
+            .await
+            .unwrap_or_default(),
+        PackageManager::Chocolatey => choco_ops::get_upgradable_packages(cmd).await,
+        PackageManager::Scoop => scoop_ops::get_upgradable_packages(cmd).await,
+    }
 }
 
-pub async fn get_choco_upgradable_packages_async(
-    runner: Option<&dyn CommandRunner>,
-) -> HashMap<String, UpgradeInfo> {
-    let cmd: &dyn CommandRunner = runner.unwrap_or(&ProcessCommandRunner);
-    choco_ops::get_upgradable_packages(cmd).await
-}
-
-pub async fn get_scoop_upgradable_packages_async(
-    runner: Option<&dyn CommandRunner>,
-) -> HashMap<String, UpgradeInfo> {
-    let cmd: &dyn CommandRunner = runner.unwrap_or(&ProcessCommandRunner);
-    scoop_ops::get_upgradable_packages(cmd).await
-}
-
-pub async fn validate_choco_package_exists_async(
-    id: &str,
-    runner: &dyn CommandRunner,
-) -> Option<bool> {
-    choco_ops::package_exists(runner, id).await.ok().flatten()
-}
-
-pub async fn validate_scoop_package_exists_async(
-    id: &str,
-    runner: &dyn CommandRunner,
-) -> Option<bool> {
-    scoop_ops::package_exists(runner, id).await.ok().flatten()
-}
-
-pub async fn validate_winget_packages_exist_async(
+/// Checks that each of `ids` exists in `manager`'s repository. Value `None`
+/// means the check itself could not be trusted; `Some(false)` means not found.
+pub async fn validate_packages_exist(
+    manager: PackageManager,
     ids: &[String],
     runner: Option<&dyn CommandRunner>,
 ) -> HashMap<String, Option<bool>> {
     let cmd: &dyn CommandRunner = runner.unwrap_or(&ProcessCommandRunner);
 
     let tasks = ids.iter().map(|id| async move {
-        let exists = winget_ops::package_exists(cmd, id).await.ok();
+        let exists = match manager {
+            PackageManager::Winget => winget_ops::package_exists(cmd, id).await.ok(),
+            PackageManager::Chocolatey => choco_ops::package_exists(cmd, id).await.ok().flatten(),
+            PackageManager::Scoop => scoop_ops::package_exists(cmd, id).await.ok().flatten(),
+        };
         (id.clone(), exists)
     });
 
-    futures::future::join_all(tasks).await.into_iter().collect()
-}
-
-pub async fn validate_choco_packages_exist_async(
-    ids: &[String],
-    runner: Option<&dyn CommandRunner>,
-) -> HashMap<String, Option<bool>> {
-    let cmd: &dyn CommandRunner = runner.unwrap_or(&ProcessCommandRunner);
-
-    let tasks = ids.iter().map(|id| async move {
-        let exists = validate_choco_package_exists_async(id, cmd).await;
-        (id.clone(), exists)
-    });
-
-    futures::future::join_all(tasks).await.into_iter().collect()
-}
-
-pub async fn validate_scoop_packages_exist_async(
-    ids: &[String],
-    runner: Option<&dyn CommandRunner>,
-) -> HashMap<String, Option<bool>> {
-    let cmd: &dyn CommandRunner = runner.unwrap_or(&ProcessCommandRunner);
-
-    let tasks = ids.iter().map(|id| async move {
-        let exists = validate_scoop_package_exists_async(id, cmd).await;
-        (id.clone(), exists)
-    });
-
-    futures::future::join_all(tasks).await.into_iter().collect()
+    join_all(tasks).await.into_iter().collect()
 }

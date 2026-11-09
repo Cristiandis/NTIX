@@ -5,10 +5,10 @@ use crate::package_manager::command_builder;
 use crate::package_manager::command_runner::CommandRunner;
 use crate::package_manager::table_parser::parse_table;
 
-pub struct WingetPackageEntry {
-    pub id: String,
-    pub version: String,
-    pub available: Option<String>,
+struct WingetPackageEntry {
+    id: String,
+    version: String,
+    available: Option<String>,
 }
 
 impl WingetPackageEntry {

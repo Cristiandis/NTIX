@@ -1,58 +1,50 @@
-use ntix_rs::models::ntix_config::NTIXConfig;
-use ntix_rs::models::options::{ChocoOptions, NTIXOptions, ScoopOptions, WingetOptions};
-use ntix_rs::models::package_entry::PackageEntry;
+use ntix_rs::models::package_manager::PackageManager;
 use ntix_rs::package_manager::package_manager_detector;
 
 mod common;
 use common::{MockCommandRunner, winget_list_command, winget_list_table};
 
-fn opts(winget_enable: bool, choco_enable: bool, scoop_enable: bool) -> NTIXOptions {
-    NTIXOptions {
-        winget: WingetOptions {
-            enable: winget_enable,
-            ..Default::default()
-        },
-        chocolatey: ChocoOptions {
-            enable: choco_enable,
-            ..Default::default()
-        },
-        scoop: ScoopOptions {
-            enable: scoop_enable,
-            ..Default::default()
-        },
-    }
-}
-
 #[tokio::test]
-async fn get_installed_packages_async_returns_all_sources() {
+async fn get_installed_packages_merges_all_sources() {
     let mut runner = MockCommandRunner::new();
     runner.output_responses.insert(
         winget_list_command(),
         winget_list_table(&[("vim", "1.0", None)]),
     );
+    runner
+        .output_responses
+        .insert("choco list".to_string(), "ripgrep|14.1.0\n".to_string());
+    runner.output_responses.insert(
+        "scoop list".to_string(),
+        "Installed apps matching '':\n\nName    Version   Source\n----    -------   ------\nfd      10.4.2    main\n"
+            .to_string(),
+    );
 
-    let result = package_manager_detector::get_installed_packages_async(Some(&runner)).await;
+    let result = package_manager_detector::get_installed_packages(Some(&runner)).await;
     assert_eq!(result.winget.get("vim"), Some(&"1.0".to_string()));
-    let _ = result.chocolatey;
-    let _ = result.scoop;
+    assert_eq!(
+        result.chocolatey.get("ripgrep"),
+        Some(&"14.1.0".to_string())
+    );
+    assert_eq!(result.scoop.get("fd"), Some(&"10.4.2".to_string()));
 }
 
 #[tokio::test]
-async fn get_installed_packages_async_winget_empty_returns_empty_winget() {
+async fn get_installed_packages_winget_empty_returns_empty_winget() {
     let runner = MockCommandRunner::new();
-    let result = package_manager_detector::get_installed_packages_async(Some(&runner)).await;
+    let result = package_manager_detector::get_installed_packages(Some(&runner)).await;
     assert!(result.winget.is_empty());
 }
 
 #[tokio::test]
-async fn get_installed_packages_async_choco_two_field_format_detected() {
+async fn get_installed_packages_choco_two_field_format_detected() {
     let mut runner = MockCommandRunner::new();
     runner.output_responses.insert(
         "choco list".to_string(),
         "ripgrep|14.1.0\nfd|10.4.2\n".to_string(),
     );
 
-    let result = package_manager_detector::get_installed_packages_async(Some(&runner)).await;
+    let result = package_manager_detector::get_installed_packages(Some(&runner)).await;
     assert_eq!(
         result.chocolatey.get("ripgrep"),
         Some(&"14.1.0".to_string())
@@ -61,7 +53,7 @@ async fn get_installed_packages_async_choco_two_field_format_detected() {
 }
 
 #[tokio::test]
-async fn get_installed_packages_async_scoop_table_format_detected() {
+async fn get_installed_packages_scoop_table_format_detected() {
     let mut runner = MockCommandRunner::new();
     runner.output_responses.insert(
         "scoop list".to_string(),
@@ -69,25 +61,25 @@ async fn get_installed_packages_async_scoop_table_format_detected() {
             .to_string(),
     );
 
-    let result = package_manager_detector::get_installed_packages_async(Some(&runner)).await;
+    let result = package_manager_detector::get_installed_packages(Some(&runner)).await;
     assert_eq!(result.scoop.get("ripgrep"), Some(&"15.2.0".to_string()));
     assert_eq!(result.scoop.get("fd"), Some(&"10.4.2".to_string()));
 }
 
 #[tokio::test]
-async fn get_installed_packages_async_scoop_empty_returns_empty() {
+async fn get_installed_packages_scoop_empty_returns_empty() {
     let mut runner = MockCommandRunner::new();
     runner.output_responses.insert(
         "scoop list".to_string(),
         "There aren't any apps installed.".to_string(),
     );
 
-    let result = package_manager_detector::get_installed_packages_async(Some(&runner)).await;
+    let result = package_manager_detector::get_installed_packages(Some(&runner)).await;
     assert!(result.scoop.is_empty());
 }
 
 #[tokio::test]
-async fn get_winget_upgradable_packages_async_returns_upgrades() {
+async fn get_upgradable_packages_winget() {
     let mut runner = MockCommandRunner::new();
     runner.output_responses.insert(
         winget_list_command(),
@@ -95,26 +87,31 @@ async fn get_winget_upgradable_packages_async_returns_upgrades() {
     );
 
     let result =
-        package_manager_detector::get_winget_upgradable_packages_async(Some(&runner)).await;
+        package_manager_detector::get_upgradable_packages(PackageManager::Winget, Some(&runner))
+            .await;
     assert_eq!(result.get("rg").unwrap().current_version, "1.0");
     assert_eq!(result.get("rg").unwrap().available_version, "2.0");
 }
 
 #[tokio::test]
-async fn get_choco_upgradable_packages_async_mock_runner() {
+async fn get_upgradable_packages_choco() {
     let mut runner = MockCommandRunner::new();
     runner.output_responses.insert(
         "choco outdated".to_string(),
         "git|2.30.0|2.40.0|\n".to_string(),
     );
 
-    let result = package_manager_detector::get_choco_upgradable_packages_async(Some(&runner)).await;
+    let result = package_manager_detector::get_upgradable_packages(
+        PackageManager::Chocolatey,
+        Some(&runner),
+    )
+    .await;
     assert_eq!(result.get("git").unwrap().current_version, "2.30.0");
     assert_eq!(result.get("git").unwrap().available_version, "2.40.0");
 }
 
 #[tokio::test]
-async fn get_scoop_upgradable_packages_async_mock_runner() {
+async fn get_upgradable_packages_scoop() {
     let mut runner = MockCommandRunner::new();
     runner.output_responses.insert(
         "scoop status".to_string(),
@@ -122,279 +119,94 @@ async fn get_scoop_upgradable_packages_async_mock_runner() {
             .to_string(),
     );
 
-    let result = package_manager_detector::get_scoop_upgradable_packages_async(Some(&runner)).await;
+    let result =
+        package_manager_detector::get_upgradable_packages(PackageManager::Scoop, Some(&runner))
+            .await;
     assert_eq!(result.get("rg").unwrap().current_version, "13.0.0");
     assert_eq!(result.get("rg").unwrap().available_version, "14.0.3");
 }
 
 #[tokio::test]
-async fn validate_choco_package_exists_async_with_mock_runner() {
+async fn validate_packages_exist_choco_found() {
     let mut runner = MockCommandRunner::new();
     runner
         .output_responses
         .insert("choco search git".to_string(), "git|2.40.0\n".to_string());
 
-    let result =
-        package_manager_detector::validate_choco_package_exists_async("git", &runner).await;
-    assert_eq!(result, Some(true));
+    let result = package_manager_detector::validate_packages_exist(
+        PackageManager::Chocolatey,
+        &["git".to_string()],
+        Some(&runner),
+    )
+    .await;
+    assert_eq!(result.get("git"), Some(&Some(true)));
     assert!(runner.commands().iter().any(|c| c.contains("choco search")));
 }
 
 #[tokio::test]
-async fn validate_choco_package_exists_async_not_found_returns_false() {
+async fn validate_packages_exist_choco_not_found_returns_false() {
     let mut runner = MockCommandRunner::new();
     runner
         .output_responses
         .insert("choco search".to_string(), "".to_string());
 
-    let result =
-        package_manager_detector::validate_choco_package_exists_async("nonexistent", &runner).await;
-    assert_eq!(result, Some(false));
+    let result = package_manager_detector::validate_packages_exist(
+        PackageManager::Chocolatey,
+        &["nonexistent".to_string()],
+        Some(&runner),
+    )
+    .await;
+    assert_eq!(result.get("nonexistent"), Some(&Some(false)));
 }
 
 #[tokio::test]
-async fn validate_choco_package_exists_async_error_is_unverifiable() {
+async fn validate_packages_exist_choco_error_is_unverifiable() {
     let mut runner = MockCommandRunner::new();
     runner.output_responses.insert(
         "choco search".to_string(),
         "ERROR: Failed to access the source".to_string(),
     );
 
-    let result =
-        package_manager_detector::validate_choco_package_exists_async("any-pkg", &runner).await;
-    assert_eq!(result, None);
+    let result = package_manager_detector::validate_packages_exist(
+        PackageManager::Chocolatey,
+        &["any-pkg".to_string()],
+        Some(&runner),
+    )
+    .await;
+    assert_eq!(result.get("any-pkg"), Some(&None));
 }
 
 #[tokio::test]
-async fn validate_scoop_package_exists_async_with_mock_runner() {
+async fn validate_packages_exist_scoop_found() {
     let mut runner = MockCommandRunner::new();
     runner.output_responses.insert(
         "scoop info rg".to_string(),
         "Name        : rg\nVersion     : 14.0.3\n".to_string(),
     );
 
-    let result = package_manager_detector::validate_scoop_package_exists_async("rg", &runner).await;
-    assert_eq!(result, Some(true));
+    let result = package_manager_detector::validate_packages_exist(
+        PackageManager::Scoop,
+        &["rg".to_string()],
+        Some(&runner),
+    )
+    .await;
+    assert_eq!(result.get("rg"), Some(&Some(true)));
     assert!(runner.commands().iter().any(|c| c.contains("scoop info")));
 }
 
 #[tokio::test]
-async fn validate_scoop_package_exists_async_not_found_returns_false() {
+async fn validate_packages_exist_scoop_not_found_returns_false() {
     let mut runner = MockCommandRunner::new();
     runner.output_responses.insert(
         "scoop info nonexistent".to_string(),
         "Couldn't find manifest for 'nonexistent'".to_string(),
     );
 
-    let result =
-        package_manager_detector::validate_scoop_package_exists_async("nonexistent", &runner).await;
-    assert_eq!(result, Some(false));
-}
-
-#[tokio::test]
-async fn validate_choco_packages_exist_async_mock_runner() {
-    let mut runner = MockCommandRunner::new();
-    runner
-        .output_responses
-        .insert("choco search git".to_string(), "git|2.40.0\n".to_string());
-
-    let result = package_manager_detector::validate_choco_packages_exist_async(
-        &["git".to_string()],
+    let result = package_manager_detector::validate_packages_exist(
+        PackageManager::Scoop,
+        &["nonexistent".to_string()],
         Some(&runner),
     )
     .await;
-    assert_eq!(result.get("git"), Some(&Some(true)));
-}
-
-#[tokio::test]
-async fn validate_scoop_packages_exist_async_mock_runner() {
-    let mut runner = MockCommandRunner::new();
-    runner.output_responses.insert(
-        "scoop info rg".to_string(),
-        "Name        : rg\nVersion     : 14.0.3\n".to_string(),
-    );
-
-    let result = package_manager_detector::validate_scoop_packages_exist_async(
-        &["rg".to_string()],
-        Some(&runner),
-    )
-    .await;
-    assert_eq!(result.get("rg"), Some(&Some(true)));
-}
-
-#[tokio::test]
-async fn validate_managers_async_scoop_disabled_returns_valid() {
-    let options = opts(true, false, false);
-    let config = NTIXConfig {
-        options: options.clone(),
-        ..Default::default()
-    };
-
-    package_manager_detector::validate_managers_async(
-        &options,
-        &config,
-        Some(true),
-        None,
-        None,
-        None,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn validate_managers_async_choco_disabled_returns_valid() {
-    let options = opts(true, false, false);
-    let config = NTIXConfig {
-        options: options.clone(),
-        ..Default::default()
-    };
-
-    package_manager_detector::validate_managers_async(
-        &options,
-        &config,
-        Some(true),
-        None,
-        None,
-        None,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn validate_managers_async_null_options_defaults() {
-    let config = NTIXConfig::default();
-    let options = config.options.clone();
-
-    package_manager_detector::validate_managers_async(
-        &options,
-        &config,
-        Some(true),
-        None,
-        None,
-        None,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn validate_managers_scoop_disabled_returns_valid() {
-    let options = opts(false, false, false);
-    let config = NTIXConfig {
-        options: options.clone(),
-        ..Default::default()
-    };
-
-    package_manager_detector::validate_managers_async(
-        &options,
-        &config,
-        Some(true),
-        Some(true),
-        Some(true),
-        None,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn validate_managers_choco_disabled_returns_valid() {
-    let options = opts(false, false, false);
-    let config = NTIXConfig {
-        options: options.clone(),
-        ..Default::default()
-    };
-
-    package_manager_detector::validate_managers_async(
-        &options,
-        &config,
-        Some(true),
-        Some(true),
-        Some(true),
-        None,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn validate_managers_scoop_packages_declared_not_enabled_generates_warning() {
-    let options = opts(false, false, false);
-    let config = NTIXConfig {
-        options: options.clone(),
-        scoop_packages: vec![PackageEntry {
-            id: "pkg1".to_string(),
-            version: Some("1.0".to_string()),
-        }],
-        ..Default::default()
-    };
-
-    let result = package_manager_detector::validate_managers_async(
-        &options,
-        &config,
-        Some(true),
-        Some(true),
-        Some(true),
-        None,
-    )
-    .await;
-    assert!(
-        result
-            .warnings
-            .iter()
-            .any(|w| w.contains("Scoop packages declared but scoop not enabled"))
-    );
-}
-
-#[tokio::test]
-async fn validate_managers_choco_packages_declared_not_enabled_generates_warning() {
-    let options = opts(false, false, false);
-    let config = NTIXConfig {
-        options: options.clone(),
-        choco_packages: vec![PackageEntry {
-            id: "pkg1".to_string(),
-            version: Some("1.0".to_string()),
-        }],
-        ..Default::default()
-    };
-
-    let result = package_manager_detector::validate_managers_async(
-        &options,
-        &config,
-        Some(true),
-        Some(true),
-        Some(true),
-        None,
-    )
-    .await;
-    assert!(
-        result
-            .warnings
-            .iter()
-            .any(|w| w.contains("Chocolatey packages declared but chocolatey not enabled"))
-    );
-}
-
-#[tokio::test]
-async fn validate_managers_sync_with_options_returns_valid() {
-    let options = opts(false, false, false);
-    let config = NTIXConfig {
-        options: options.clone(),
-        ..Default::default()
-    };
-
-    let result = package_manager_detector::validate_managers_async(
-        &options,
-        &config,
-        Some(true),
-        Some(true),
-        Some(true),
-        None,
-    )
-    .await;
-    assert!(result.warnings.is_empty());
-}
-
-#[cfg(target_os = "windows")]
-#[test]
-fn is_running_as_admin_returns_bool() {
-    let result = ntix_rs::process_helper::is_running_as_admin();
-    let _ = result;
+    assert_eq!(result.get("nonexistent"), Some(&Some(false)));
 }

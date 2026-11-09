@@ -1,13 +1,14 @@
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
 use ntix_rs::config::config_loader;
-use ntix_rs::execution::execution_engine;
+use ntix_rs::execution::execution_engine::{self, Output};
 use ntix_rs::lock::lock_file::LockFile;
 use ntix_rs::models::diff_result::DiffResult;
 use ntix_rs::models::options::ScoopBucket;
 use ntix_rs::models::package_manager::PackageManager;
 use ntix_rs::models::package_spec::PackageSpec;
 use ntix_rs::models::{import_node::ImportNode, ntix_config::NTIXConfig, state::State};
+use ntix_rs::package_manager::probes::Probes;
 use ntix_rs::state_management::state_service;
 use ntix_rs::{diff, process_helper};
 use std::collections::HashMap;
@@ -25,7 +26,7 @@ async fn resolve_and_compute(
     upgrade: bool,
     apply_config: bool,
     no_gc: bool,
-) -> Result<Option<(NTIXConfig, PathBuf, State, DiffResult)>, Box<dyn std::error::Error>> {
+) -> Result<Option<(NTIXConfig, State, DiffResult)>, Box<dyn std::error::Error>> {
     let is_new = config_path.is_none() && !config_loader::DEFAULT_CONFIG_PATH.is_file();
     let resolved_path = config_loader::ensure_default_config(config_path);
 
@@ -42,7 +43,7 @@ async fn resolve_and_compute(
     }
 
     let config = config_loader::load(resolved_path.clone())?;
-    let state = state_service::load_state(None).unwrap_or_default();
+    let state = state_service::load_state().unwrap_or_default();
 
     let config_file_name = resolved_path
         .file_name()
@@ -55,7 +56,12 @@ async fn resolve_and_compute(
     spinner.set_message(config_file_name.clone().bold().to_string());
 
     let mut diff: DiffResult = diff::diff_engine::compute_diff(
-        &config, &state, None, None, None, None, adopt, upgrade, true, None, &spinner,
+        &config,
+        &state,
+        &Probes::default(),
+        adopt,
+        upgrade,
+        &spinner,
     )
     .await?;
     spinner.finish_and_clear();
@@ -75,7 +81,7 @@ async fn resolve_and_compute(
         eprintln!("{}", format!("Warning: {}", w).yellow());
     }
 
-    Ok(Some((config, resolved_path, state, diff)))
+    Ok(Some((config, state, diff)))
 }
 
 pub async fn apply(
@@ -96,9 +102,9 @@ pub async fn apply(
         return Ok(1);
     }
 
-    let _lock = LockFile::new(None, true)?;
+    let _lock = LockFile::acquire()?;
 
-    let Some((config, _resolved_path, mut state, diff)) =
+    let Some((config, mut state, diff)) =
         resolve_and_compute(config_path, "apply", adopt, upgrade, apply_config, no_gc).await?
     else {
         return Ok(0);
@@ -115,6 +121,10 @@ pub async fn apply(
 
     let state_path = state_service::get_state_path()?;
 
+    let output = Output {
+        line: Some(&|line: &str| println!("{line}")),
+        error: Some(&|err: &str| eprintln!("{}", err.red())),
+    };
     let success = execution_engine::apply_diff(
         &diff,
         &config.options,
@@ -123,8 +133,7 @@ pub async fn apply(
         stop_on_failure,
         &diff.manager_validation,
         apply_config,
-        Some(&|line: &str| println!("{line}")),
-        Some(&|err: &str| eprintln!("{}", err.red())),
+        output,
         None,
     )
     .await;
@@ -144,28 +153,19 @@ pub async fn diff_cmd(
     upgrade: bool,
     apply_config: bool,
 ) -> Result<i32, Box<dyn std::error::Error>> {
-    if resolve_and_compute(config_path, "diff", adopt, upgrade, apply_config, false)
-        .await?
-        .is_none()
-    {
-        return Ok(0);
-    }
+    resolve_and_compute(config_path, "diff", adopt, upgrade, apply_config, false).await?;
     Ok(0)
 }
 
 pub fn state_cmd() -> Result<i32, Box<dyn std::error::Error>> {
-    let Some(state) = state_service::load_state(None) else {
+    let Some(state) = state_service::load_state() else {
         println!("{}", "No state file found.".yellow());
         return Ok(0);
     };
 
     println!("{}", "NTIX State:".bold());
 
-    let manager_maps = [
-        (&state.winget, PackageManager::Winget),
-        (&state.chocolatey, PackageManager::Chocolatey),
-        (&state.scoop, PackageManager::Scoop),
-    ];
+    let manager_maps = PackageManager::ALL.map(|manager| (state.packages(manager), manager));
     if manager_maps.iter().all(|(map, _)| map.is_empty()) {
         println!("  {}", "(empty)".dimmed());
     } else {
@@ -249,15 +249,7 @@ fn print_diff_tree(
         }
     }
 
-    let has_action = !diff.to_install.is_empty()
-        || !diff.to_upgrade.is_empty()
-        || !diff.to_adopt.is_empty()
-        || !diff.buckets_to_add.is_empty()
-        || !diff.buckets_to_remove.is_empty()
-        || !diff.to_remove.is_empty()
-        || !diff.config_files_to_create.is_empty()
-        || !diff.config_files_to_update.is_empty()
-        || !diff.config_files_no_longer_managed.is_empty();
+    let has_action = !diff.is_empty();
     if !has_action {
         println!("{}", "Nothing to do.".dimmed());
     }

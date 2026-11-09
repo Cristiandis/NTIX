@@ -6,43 +6,65 @@ use std::{
 use indicatif::ProgressBar;
 use regex::Regex;
 
-use crate::{
-    models::{
-        diff_result::DiffResult, installed_packages::InstalledPackages,
-        installed_packages::UpgradeInfo, ntix_config::NTIXConfig, options::ScoopBucket,
-        package_entry::PackageEntry, package_manager::PackageManager, package_spec::PackageSpec,
-        state::State,
-    },
-    package_manager::{
-        command_builder, command_runner::CommandRunner, package_manager_detector,
-        process_command_runner::ProcessCommandRunner,
-    },
+use crate::models::{
+    diff_result::DiffResult,
+    installed_packages::{InstalledPackages, UpgradeInfo},
+    manager_validation::ValidationResult,
+    ntix_config::NTIXConfig,
+    options::ScoopBucket,
+    package_entry::PackageEntry,
+    package_manager::PackageManager,
+    package_spec::PackageSpec,
+    state::State,
+};
+use crate::package_manager::{
+    command_builder, command_runner::CommandRunner, package_manager_detector, probes::Probes,
+    process_command_runner::ProcessCommandRunner,
 };
 
-#[allow(clippy::too_many_arguments)]
+/// Everything `compute_diff` needs about one manager, assembled once so the
+/// per-manager passes do not each redo the same lookups.
+struct ManagerView<'a> {
+    manager: PackageManager,
+    configured: &'a [PackageEntry],
+    installed: &'a HashMap<String, String>,
+    tracked: &'a HashMap<String, String>,
+    /// Detected on the system (gates orphan removal).
+    detected: bool,
+    /// Enabled in options and detected (gates install/upgrade classification).
+    enabled: bool,
+}
+
+fn manager_views<'a>(
+    config: &'a NTIXConfig,
+    validation: &ValidationResult,
+    installed: &'a InstalledPackages,
+    state: &'a State,
+) -> [ManagerView<'a>; 3] {
+    PackageManager::ALL.map(|manager| {
+        let detected = validation.installed(manager);
+        ManagerView {
+            manager,
+            configured: config.packages(manager),
+            installed: installed.packages(manager),
+            tracked: state.packages(manager),
+            detected,
+            enabled: config.options.enabled(manager) && detected,
+        }
+    })
+}
+
 pub async fn compute_diff(
     config: &NTIXConfig,
     state: &State,
-    winget_installed: Option<bool>,
-    choco_installed: Option<bool>,
-    scoop_installed: Option<bool>,
-    runner: Option<&dyn CommandRunner>,
+    probes: &Probes<'_>,
     adopt_mode: bool,
     upgrade_mode: bool,
-    validate_packages: bool,
-    installed: Option<&InstalledPackages>,
     progress: &ProgressBar,
 ) -> Result<DiffResult, Box<dyn Error>> {
     progress.set_message("Checking package managers...");
-    let validation = package_manager_detector::validate_managers_async(
-        &config.options,
-        config,
-        winget_installed,
-        choco_installed,
-        scoop_installed,
-        runner,
-    )
-    .await;
+    let validation =
+        package_manager_detector::validate_managers(config, probes.runner, probes.presence).await;
 
     let mut result = DiffResult {
         warnings: validation.warnings.clone(),
@@ -50,117 +72,52 @@ pub async fn compute_diff(
         ..Default::default()
     };
 
-    let installed_pkgs = match installed {
+    let installed_pkgs = match probes.installed {
         Some(installed) => installed.clone(),
         None => {
             progress.set_message("Discovering installed packages...");
-            package_manager_detector::get_installed_packages_async(runner).await
+            package_manager_detector::get_installed_packages(probes.runner).await
         }
     };
 
-    let has_winget_unpinned = config.winget_packages.iter().any(|p| p.version.is_none());
-    let has_choco_unpinned = config.choco_packages.iter().any(|p| p.version.is_none());
-    let has_scoop_unpinned = config.scoop_packages.iter().any(|p| p.version.is_none());
-
-    let winget_enabled = config.options.winget.enable && validation.winget_installed;
-    let choco_enabled = config.options.chocolatey.enable && validation.choco_installed;
-    let scoop_enabled = config.options.scoop.enable && validation.scoop_installed;
+    let views = manager_views(config, &validation, &installed_pkgs, state);
 
     progress.set_message("Checking for updates...");
+    for view in &views {
+        let upgradable = if upgrade_mode
+            && view.enabled
+            && view.configured.iter().any(|p| p.version.is_none())
+        {
+            package_manager_detector::get_upgradable_packages(view.manager, probes.runner).await
+        } else {
+            HashMap::new()
+        };
 
-    let winget_upgradable = if upgrade_mode && has_winget_unpinned && winget_enabled {
-        package_manager_detector::get_winget_upgradable_packages_async(runner).await
-    } else {
-        HashMap::new()
-    };
-    let choco_upgradable = if upgrade_mode && has_choco_unpinned && choco_enabled {
-        package_manager_detector::get_choco_upgradable_packages_async(runner).await
-    } else {
-        HashMap::new()
-    };
-    let scoop_upgradable = if upgrade_mode && has_scoop_unpinned && scoop_enabled {
-        package_manager_detector::get_scoop_upgradable_packages_async(runner).await
-    } else {
-        HashMap::new()
-    };
+        classify_packages(&mut result, view, &upgradable, adopt_mode);
+    }
 
-    classify_packages(
-        &mut result,
-        &config.winget_packages,
-        PackageManager::Winget,
-        winget_enabled,
-        &installed_pkgs.winget,
-        &state.winget,
-        &winget_upgradable,
-        adopt_mode,
-    );
-    classify_packages(
-        &mut result,
-        &config.choco_packages,
-        PackageManager::Chocolatey,
-        choco_enabled,
-        &installed_pkgs.chocolatey,
-        &state.chocolatey,
-        &choco_upgradable,
-        adopt_mode,
-    );
-    classify_packages(
-        &mut result,
-        &config.scoop_packages,
-        PackageManager::Scoop,
-        scoop_enabled,
-        &installed_pkgs.scoop,
-        &state.scoop,
-        &scoop_upgradable,
-        adopt_mode,
-    );
-
-    if validate_packages {
+    if !probes.skip_package_validation {
         progress.set_message("Validating packages...");
-        validate_package_availability(
-            &mut result,
-            state,
-            runner,
-            winget_enabled,
-            choco_enabled,
-            scoop_enabled,
-        )
-        .await;
+        validate_package_availability(&mut result, &views, probes.runner).await;
     }
 
     progress.set_message("Finding orphans...");
-    if validation.winget_installed {
-        find_orphans(
-            &mut result,
-            &state.winget,
-            &config.winget_packages,
-            PackageManager::Winget,
-        );
-    }
-    if validation.choco_installed {
-        find_orphans(
-            &mut result,
-            &state.chocolatey,
-            &config.choco_packages,
-            PackageManager::Chocolatey,
-        );
-    }
-    if validation.scoop_installed {
-        find_orphans(
-            &mut result,
-            &state.scoop,
-            &config.scoop_packages,
-            PackageManager::Scoop,
-        );
+    for view in &views {
+        if view.detected {
+            find_orphans(&mut result, view);
+        }
     }
 
-    if scoop_enabled && !config.options.scoop.buckets.is_empty() {
+    if config.options.scoop.enable
+        && validation.scoop_installed
+        && !config.options.scoop.buckets.is_empty()
+    {
         progress.set_message("Checking scoop buckets...");
         compute_bucket_diff(
             &mut result,
             &config.options.scoop.buckets,
             &state.scoop_buckets,
-            runner,
+            probes.runner,
         )
         .await;
     }
@@ -178,25 +135,25 @@ async fn compute_bucket_diff(
 
     let mut system_buckets: HashSet<String> = HashSet::new();
 
-    let output = cmd
-        .run_output(&command_builder::build_scoop_bucket_list(), false)
-        .await;
-
     let re = Regex::new(r"^(\S+)").unwrap();
 
-    for line in output.lines() {
+    for line in cmd
+        .run_output(&command_builder::build_scoop_bucket_list(), false)
+        .await
+        .lines()
+    {
         let trimmed = line.trim();
 
         if trimmed.is_empty() || trimmed.starts_with('-') {
             continue;
         }
 
-        if let Some(caps) = re.captures(trimmed) {
-            let name = &caps[1];
-
-            if !name.eq_ignore_ascii_case("Name") {
-                system_buckets.insert(name.to_lowercase());
-            }
+        if let Some(name) = re
+            .captures(trimmed)
+            .and_then(|c| c.get(1))
+            .filter(|name| !name.as_str().eq_ignore_ascii_case("Name"))
+        {
+            system_buckets.insert(name.as_str().to_lowercase());
         }
     }
 
@@ -227,34 +184,30 @@ fn ci_lookup<'a, V>(map: &'a HashMap<String, V>, key: &str) -> Option<&'a V> {
         .map(|(_, v)| v)
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Classifies every configured package of one manager into the diff lists.
 fn classify_packages(
     result: &mut DiffResult,
-    packages: &[PackageEntry],
-    source_name: PackageManager,
-    enabled: bool,
-    installed_dict: &HashMap<String, String>,
-    state_dict: &HashMap<String, String>,
+    view: &ManagerView<'_>,
     upgradable: &HashMap<String, UpgradeInfo>,
     adopt_mode: bool,
 ) {
-    if !enabled {
+    if !view.enabled {
         return;
     }
 
-    for pkg in packages {
+    for pkg in view.configured {
         let mut spec = PackageSpec {
             id: pkg.id.clone(),
             version: pkg.version.clone(),
-            source: source_name,
+            source: view.manager,
         };
-        let is_installed = ci_lookup(installed_dict, &pkg.id).is_some();
-        let in_state = ci_lookup(state_dict, &pkg.id).is_some();
+        let installed_version = ci_lookup(view.installed, &pkg.id);
+        let state_version = ci_lookup(view.tracked, &pkg.id);
+        let is_installed = installed_version.is_some();
+        let in_state = state_version.is_some();
 
         if let Some(pkg_version) = &pkg.version {
-            if in_state {
-                let state_version =
-                    ci_lookup(state_dict, &pkg.id).expect("in_state implies a state entry");
+            if let Some(state_version) = state_version {
                 if !state_version.eq_ignore_ascii_case(pkg_version) {
                     result.to_install.push(spec);
                 } else if is_installed {
@@ -263,8 +216,7 @@ fn classify_packages(
                     result.to_install.push(spec);
                 }
             } else if is_installed && adopt_mode {
-                let installed_version = ci_lookup(installed_dict, &pkg.id)
-                    .expect("is_installed and adopt_mode imply an installed entry");
+                let installed_version = installed_version.expect("is_installed implies an entry");
                 if installed_version.eq_ignore_ascii_case(pkg_version) {
                     spec.version = Some(installed_version.clone());
                     result.to_adopt.push(spec);
@@ -274,138 +226,98 @@ fn classify_packages(
             } else {
                 result.to_install.push(spec);
             }
-        } else if is_installed && let Some(upgrade) = ci_lookup(upgradable, &pkg.id) {
-            spec.version = Some(upgrade.available_version.clone());
-            result.to_upgrade.push(spec);
-        } else if !is_installed && !in_state {
-            result.to_install.push(spec);
-        } else if is_installed && in_state {
-            result.to_skip.push(spec);
-        } else if is_installed && adopt_mode {
-            result.to_adopt.push(spec);
-        } else if is_installed {
-            // Installed on the system but not tracked: report as unmanaged
-            // rather than counting it as "already managed".
-            result.to_untracked.push(spec);
-        } else if in_state {
-            result.to_install.push(spec);
+        } else {
+            // Any installed version satisfies an unpinned entry.
+            if is_installed {
+                if let Some(upgrade) = ci_lookup(upgradable, &pkg.id) {
+                    spec.version = Some(upgrade.available_version.clone());
+                    result.to_upgrade.push(spec);
+                } else if in_state {
+                    result.to_skip.push(spec);
+                } else if adopt_mode {
+                    result.to_adopt.push(spec);
+                } else {
+                    // Installed on the system but not tracked: report as
+                    // unmanaged rather than counting it as "already managed".
+                    result.to_untracked.push(spec);
+                }
+            } else {
+                result.to_install.push(spec);
+            }
         }
     }
 }
 
-fn find_orphans(
-    result: &mut DiffResult,
-    state_dict: &HashMap<String, String>,
-    config_packages: &[PackageEntry],
-    source_name: PackageManager,
-) {
-    for (id, ver) in state_dict {
-        if !config_packages
+fn find_orphans(result: &mut DiffResult, view: &ManagerView<'_>) {
+    for (id, ver) in view.tracked {
+        if !view
+            .configured
             .iter()
             .any(|p| p.id.eq_ignore_ascii_case(id))
         {
             result.to_remove.push(PackageSpec {
                 id: id.to_string(),
                 version: Some(ver.to_string()),
-                source: source_name,
+                source: view.manager,
             });
         }
     }
 }
 
+/// Verifies only packages that are new to state (already-tracked entries are
+/// known to exist), querying all managers concurrently.
 async fn validate_package_availability(
     result: &mut DiffResult,
-    state: &State,
+    views: &[ManagerView<'_>],
     runner: Option<&dyn CommandRunner>,
-    winget_enabled: bool,
-    choco_enabled: bool,
-    scoop_enabled: bool,
 ) {
-    let winget_pkgs: Vec<PackageSpec> = extract_pkgs_to_install(result, PackageManager::Winget);
-    let choco_pkgs: Vec<PackageSpec> = extract_pkgs_to_install(result, PackageManager::Chocolatey);
-    let scoop_pkgs: Vec<PackageSpec> = extract_pkgs_to_install(result, PackageManager::Scoop);
+    let checks: Vec<(PackageManager, Vec<String>)> = views
+        .iter()
+        .filter_map(|view| {
+            let new_ids: Vec<String> = result
+                .to_install
+                .iter()
+                .filter(|p| p.source == view.manager)
+                .filter(|p| ci_lookup(view.tracked, &p.id).is_none())
+                .map(|p| p.id.clone())
+                .collect();
+            (!new_ids.is_empty()).then_some((view.manager, new_ids))
+        })
+        .collect();
 
-    let new_winget_ids: Vec<String> = new_pkg_ids(&winget_pkgs, &state.winget);
-    let new_choco_ids: Vec<String> = new_pkg_ids(&choco_pkgs, &state.chocolatey);
-    let new_scoop_ids: Vec<String> = new_pkg_ids(&scoop_pkgs, &state.scoop);
+    let outcomes = futures::future::join_all(checks.iter().map(|(manager, ids)| async move {
+        (
+            *manager,
+            package_manager_detector::validate_packages_exist(*manager, ids, runner).await,
+        )
+    }))
+    .await;
 
-    let (winget_results, choco_results, scoop_results) = tokio::join!(
-        async {
-            if winget_enabled && !new_winget_ids.is_empty() {
-                package_manager_detector::validate_winget_packages_exist_async(
-                    &new_winget_ids,
-                    runner,
-                )
-                .await
-            } else {
-                HashMap::new()
-            }
-        },
-        async {
-            if choco_enabled && !new_choco_ids.is_empty() {
-                package_manager_detector::validate_choco_packages_exist_async(
-                    &new_choco_ids,
-                    runner,
-                )
-                .await
-            } else {
-                HashMap::new()
-            }
-        },
-        async {
-            if scoop_enabled && !new_scoop_ids.is_empty() {
-                package_manager_detector::validate_scoop_packages_exist_async(
-                    &new_scoop_ids,
-                    runner,
-                )
-                .await
-            } else {
-                HashMap::new()
-            }
-        },
-    );
-
-    let mut invalid: HashSet<String> = HashSet::new();
-    for (pkgs, results, source) in [
-        (&winget_pkgs, &winget_results, PackageManager::Winget),
-        (&choco_pkgs, &choco_results, PackageManager::Chocolatey),
-        (&scoop_pkgs, &scoop_results, PackageManager::Scoop),
-    ] {
-        for pkg in pkgs {
-            match results.get(&pkg.id) {
+    for ((manager, ids), (_, manager_outcomes)) in checks.iter().zip(outcomes) {
+        let mut invalid_ids: Vec<String> = Vec::new();
+        for id in ids {
+            match manager_outcomes.get(id) {
                 Some(Some(false)) => {
                     result
                         .warnings
-                        .push(format!("Package not found in {source}: {}", pkg.id));
-                    invalid.insert(pkg.id.clone());
+                        .push(format!("Package not found in {manager}: {id}"));
+                    invalid_ids.push(id.clone());
                 }
                 Some(None) | None => {
                     result
                         .warnings
-                        .push(format!("Could not verify package in {source}: {}", pkg.id));
+                        .push(format!("Could not verify package in {manager}: {id}"));
                 }
                 Some(Some(true)) => {}
             }
         }
+
+        if !invalid_ids.is_empty() {
+            result
+                .to_install
+                .retain(|p| !(p.source == *manager && invalid_ids.contains(&p.id)));
+        }
     }
-
-    result.to_install.retain(|p| !invalid.contains(&p.id));
-}
-
-fn new_pkg_ids(pkgs: &[PackageSpec], state_dict: &HashMap<String, String>) -> Vec<String> {
-    pkgs.iter()
-        .filter(|p| ci_lookup(state_dict, &p.id).is_none())
-        .map(|p| p.id.clone())
-        .collect()
-}
-
-fn extract_pkgs_to_install(result: &DiffResult, source: PackageManager) -> Vec<PackageSpec> {
-    result
-        .to_install
-        .iter()
-        .filter(|p| p.source == source)
-        .cloned()
-        .collect()
 }
 
 /// Classifies the config-file state for `config` relative to `state`, populating

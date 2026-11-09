@@ -4,7 +4,9 @@ use async_trait::async_trait;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-use crate::package_manager::command_runner::{CREATE_NO_WINDOW, CommandRunner, LineCallback};
+pub(crate) const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+use crate::package_manager::command_runner::{CommandRunner, LineCallback};
 
 pub struct ProcessCommandRunner;
 
@@ -35,8 +37,8 @@ impl CommandRunner for ProcessCommandRunner {
         let stderr = child.stderr.take().expect("stderr was piped");
 
         tokio::join!(
-            stream_lines(Some(stdout), on_output),
-            stream_lines(Some(stderr), on_error)
+            stream_lines(stdout, on_output),
+            stream_lines(stderr, on_error)
         );
 
         match child.wait().await {
@@ -86,13 +88,10 @@ impl CommandRunner for ProcessCommandRunner {
     }
 }
 
-pub(crate) async fn stream_lines<R>(reader: Option<R>, callback: Option<LineCallback<'_>>)
+pub(crate) async fn stream_lines<R>(reader: R, callback: Option<LineCallback<'_>>)
 where
     R: tokio::io::AsyncRead + Unpin,
 {
-    let Some(reader) = reader else {
-        return;
-    };
     let mut lines = BufReader::new(reader).lines();
     while let Ok(Some(line)) = lines.next_line().await {
         if let Some(cb) = callback {

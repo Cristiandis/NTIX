@@ -24,7 +24,7 @@ fn sample_state() -> State {
 #[test]
 fn load_state_non_existent_returns_none() {
     let path = std::env::temp_dir().join("nonexistent_path_state.json");
-    let result = state_service::load_state(Some(&path));
+    let result = state_service::load_state_from(&path);
     assert!(result.is_none());
 }
 
@@ -32,10 +32,10 @@ fn load_state_non_existent_returns_none() {
 fn save_and_load_state_round_trip() {
     let path = temp_json_path("roundtrip");
     let state = sample_state();
-    let saved = state_service::save_state(&state, Some(&path), 3).unwrap();
+    let saved = state_service::save_state_to(&state, &path).unwrap();
     assert!(saved);
 
-    let loaded = state_service::load_state(Some(&path)).expect("should load");
+    let loaded = state_service::load_state_from(&path).expect("should load");
     assert_eq!(loaded.winget.get("pkg1"), Some(&"1.0".to_string()));
     assert_eq!(loaded.chocolatey.get("pkg2"), Some(&"2.0".to_string()));
     assert_eq!(loaded.scoop.get("pkg3"), Some(&"3.0".to_string()));
@@ -46,7 +46,7 @@ fn save_and_load_state_round_trip() {
 fn load_state_corrupt_json_returns_none() {
     let path = temp_json_path("corrupt");
     fs::write(&path, "not valid json {{{").unwrap();
-    let loaded = state_service::load_state(Some(&path));
+    let loaded = state_service::load_state_from(&path);
     assert!(loaded.is_none());
     let _ = fs::remove_file(&path);
 }
@@ -56,12 +56,12 @@ fn load_state_cleans_orphan_tmp() {
     let path = temp_json_path("orphan");
     let tmp_path = std::path::PathBuf::from(format!("{}.tmp", path.display()));
     let state = sample_state();
-    assert!(state_service::save_state(&state, Some(&path), 3).unwrap());
+    assert!(state_service::save_state_to(&state, &path).unwrap());
 
     fs::write(&tmp_path, "orphan data").unwrap();
     assert!(tmp_path.is_file());
 
-    let loaded = state_service::load_state(Some(&path)).expect("should load");
+    let loaded = state_service::load_state_from(&path).expect("should load");
     assert_eq!(loaded.winget.get("pkg1"), Some(&"1.0".to_string()));
     assert!(!tmp_path.exists());
     let _ = fs::remove_file(&path);
@@ -73,7 +73,7 @@ fn save_state_directory_creation_fails_returns_err() {
         .join("ntix_test_impossible<dir")
         .join("state.json");
     let state = State::default();
-    let result = state_service::save_state(&state, Some(&bad_path), 3);
+    let result = state_service::save_state_to(&state, &bad_path);
     assert!(result.is_err());
 }
 
@@ -85,7 +85,7 @@ fn save_state_exhausts_retries_returns_false() {
     fs::create_dir_all(&state_file_path).unwrap();
 
     let state = sample_state();
-    let result = state_service::save_state(&state, Some(&state_file_path), 2).unwrap();
+    let result = state_service::save_state_to(&state, &state_file_path).unwrap();
     assert!(!result);
 
     let _ = fs::remove_dir_all(&state_file_path);
@@ -107,7 +107,7 @@ fn load_state_v1_migrates_to_v2_with_empty_config_files() {
     )
     .unwrap();
 
-    let loaded = state_service::load_state(Some(&path)).expect("should load");
+    let loaded = state_service::load_state_from(&path).expect("should load");
     assert_eq!(loaded.version, 2);
     assert!(loaded.config_files.is_empty());
     assert_eq!(
@@ -125,8 +125,8 @@ fn state_round_trip_preserves_config_files() {
         .config_files
         .insert("C:/dest/app.conf".to_string(), "abc123".to_string());
     let path = temp_json_path("cfroundtrip");
-    assert!(state_service::save_state(&state, Some(&path), 3).unwrap());
-    let loaded = state_service::load_state(Some(&path)).expect("should load");
+    assert!(state_service::save_state_to(&state, &path).unwrap());
+    let loaded = state_service::load_state_from(&path).expect("should load");
     assert_eq!(loaded.version, 2);
     assert_eq!(
         loaded

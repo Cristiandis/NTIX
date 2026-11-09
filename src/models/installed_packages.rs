@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::models::package_manager::PackageManager;
+
 #[derive(Debug, Clone)]
 pub struct UpgradeInfo {
     pub current_version: String,
@@ -20,4 +22,22 @@ pub struct InstalledPackages {
     pub winget: HashMap<String, String>,
     pub chocolatey: HashMap<String, String>,
     pub scoop: HashMap<String, String>,
+}
+
+impl InstalledPackages {
+    pub fn packages(&self, manager: PackageManager) -> &HashMap<String, String> {
+        match manager {
+            PackageManager::Winget => &self.winget,
+            PackageManager::Chocolatey => &self.chocolatey,
+            PackageManager::Scoop => &self.scoop,
+        }
+    }
+
+    pub fn packages_mut(&mut self, manager: PackageManager) -> &mut HashMap<String, String> {
+        match manager {
+            PackageManager::Winget => &mut self.winget,
+            PackageManager::Chocolatey => &mut self.chocolatey,
+            PackageManager::Scoop => &mut self.scoop,
+        }
+    }
 }

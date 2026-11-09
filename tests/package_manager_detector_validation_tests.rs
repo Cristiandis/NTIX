@@ -4,6 +4,7 @@ use ntix_rs::models::package_entry::PackageEntry;
 use ntix_rs::package_manager::package_manager_detector;
 
 mod common;
+use common::MockCommandRunner;
 
 fn opts(choco_enable: bool, scoop_enable: bool) -> NTIXOptions {
     NTIXOptions {
@@ -27,23 +28,20 @@ async fn validate_managers_chocolatey_enabled_not_installed_warns_and_continues(
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers_async(
-        &options,
+    let result = package_manager_detector::validate_managers(
         &config,
-        Some(true),
-        Some(false),
-        Some(true),
         None,
+        Some(ntix_rs::package_manager::probes::Presence {
+            winget: true,
+            choco: false,
+            scoop: true,
+        }),
     )
     .await;
     assert!(!result.choco_installed);
-    assert!(
-        result
-            .warnings
-            .iter()
-            .any(|w| w.contains("Chocolatey is enabled but not installed")
-                && w.contains("chocolatey.org/install"))
-    );
+    assert!(result.warnings.contains(
+        &"[warn] Chocolatey is enabled but not installed. Skipping Chocolatey packages. Install from https://chocolatey.org/install".to_string()
+    ));
 }
 
 #[tokio::test]
@@ -54,13 +52,14 @@ async fn validate_managers_chocolatey_enabled_installed_returns_valid() {
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers_async(
-        &options,
+    let result = package_manager_detector::validate_managers(
         &config,
-        Some(true),
-        Some(true),
-        Some(true),
         None,
+        Some(ntix_rs::package_manager::probes::Presence {
+            winget: true,
+            choco: true,
+            scoop: true,
+        }),
     )
     .await;
     assert!(result.choco_installed);
@@ -75,22 +74,20 @@ async fn validate_managers_scoop_enabled_not_installed_warns_and_continues() {
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers_async(
-        &options,
+    let result = package_manager_detector::validate_managers(
         &config,
-        Some(true),
-        Some(true),
-        Some(false),
         None,
+        Some(ntix_rs::package_manager::probes::Presence {
+            winget: true,
+            choco: true,
+            scoop: false,
+        }),
     )
     .await;
     assert!(!result.scoop_installed);
-    assert!(
-        result
-            .warnings
-            .iter()
-            .any(|w| w.contains("Scoop is enabled but not installed") && w.contains("scoop.sh"))
-    );
+    assert!(result.warnings.contains(
+        &"[warn] Scoop is enabled but not installed. Skipping Scoop packages and buckets. Install from https://scoop.sh".to_string()
+    ));
 }
 
 #[tokio::test]
@@ -101,13 +98,14 @@ async fn validate_managers_scoop_enabled_installed_returns_valid() {
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers_async(
-        &options,
+    let result = package_manager_detector::validate_managers(
         &config,
-        Some(true),
-        Some(true),
-        Some(true),
         None,
+        Some(ntix_rs::package_manager::probes::Presence {
+            winget: true,
+            choco: true,
+            scoop: true,
+        }),
     )
     .await;
     assert!(result.scoop_installed);
@@ -126,13 +124,14 @@ async fn validate_managers_chocolatey_packages_not_enabled_returns_warning() {
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers_async(
-        &options,
+    let result = package_manager_detector::validate_managers(
         &config,
-        Some(true),
-        Some(true),
-        Some(true),
         None,
+        Some(ntix_rs::package_manager::probes::Presence {
+            winget: true,
+            choco: true,
+            scoop: true,
+        }),
     )
     .await;
     assert!(result.warnings.iter().any(|w| {
@@ -152,13 +151,14 @@ async fn validate_managers_scoop_packages_not_enabled_returns_warning() {
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers_async(
-        &options,
+    let result = package_manager_detector::validate_managers(
         &config,
-        Some(true),
-        Some(true),
-        Some(true),
         None,
+        Some(ntix_rs::package_manager::probes::Presence {
+            winget: true,
+            choco: true,
+            scoop: true,
+        }),
     )
     .await;
     assert!(
@@ -177,33 +177,60 @@ async fn validate_managers_all_disabled_no_packages_returns_success() {
         ..Default::default()
     };
 
-    let result = package_manager_detector::validate_managers_async(
-        &options,
+    let result = package_manager_detector::validate_managers(
         &config,
-        Some(true),
-        Some(true),
-        Some(true),
         None,
+        Some(ntix_rs::package_manager::probes::Presence {
+            winget: true,
+            choco: true,
+            scoop: true,
+        }),
     )
     .await;
     assert!(result.warnings.is_empty());
 }
 
 #[tokio::test]
-async fn validate_managers_null_options_handles_gracefully() {
-    let options = NTIXOptions::default();
+async fn validate_managers_winget_enabled_missing_attempts_auto_install() {
+    let runner = MockCommandRunner::new();
     let config = NTIXConfig {
-        options: options.clone(),
+        options: NTIXOptions {
+            winget: WingetOptions {
+                enable: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
         ..Default::default()
     };
 
-    package_manager_detector::validate_managers_async(
-        &options,
-        &config,
-        Some(true),
-        Some(true),
-        Some(true),
-        None,
-    )
-    .await;
+    let result = package_manager_detector::validate_managers(&config, Some(&runner), None).await;
+
+    assert!(!result.winget_installed);
+    assert!(
+        runner
+            .commands()
+            .iter()
+            .any(|c| c.contains("powershell.exe") && c.contains("ms-windows-store"))
+    );
+    assert!(result.warnings.contains(
+        &"[warn] Winget is enabled but not installed. Auto-install failed. Skipping Winget packages. Install from https://github.com/microsoft/winget-cli".to_string()
+    ));
+}
+
+#[tokio::test]
+async fn validate_managers_winget_disabled_missing_does_not_auto_install() {
+    let runner = MockCommandRunner::new();
+    let config = NTIXConfig::default();
+
+    let result = package_manager_detector::validate_managers(&config, Some(&runner), None).await;
+
+    assert!(!result.winget_installed);
+    assert!(
+        !runner
+            .commands()
+            .iter()
+            .any(|c| c.contains("powershell.exe"))
+    );
+    assert!(result.warnings.is_empty());
 }

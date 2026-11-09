@@ -30,9 +30,9 @@ pub static DEFAULT_CONFIG_PATH: LazyLock<PathBuf> =
 
 const DEFAULT_CONFIG_CONTENT: &str = r#"
 return {
+    options = {},
     -- Don't declare the same package under multiple managers.
     -- This causes conflicts during install/uninstall
-    options = {},
     pkgs = {},
     -- Optional: manage arbitrary config files.
     -- NOTE: Lua interprets \ as an escape sequence, so use "/" as the path
@@ -522,7 +522,7 @@ fn read_options(options: &Table) -> mlua::Result<NTIXOptions> {
             ),
             allow_downgrade: read_bool(&t.get::<Value>("allowDowngrade")?, choco.allow_downgrade),
             skip_power_shell: read_bool(&t.get::<Value>("skipPowerShell")?, choco.skip_power_shell),
-            params: read_string(&t.get::<Value>("params")?, choco.params.clone()).unwrap(),
+            params: read_string(&t.get::<Value>("params")?, choco.params.clone()),
             pre: read_bool(&t.get::<Value>("pre")?, choco.pre),
         };
     }
@@ -564,7 +564,7 @@ fn read_options(options: &Table) -> mlua::Result<NTIXOptions> {
             independent: read_bool(&t.get::<Value>("independent")?, scoop.independent),
             no_cache: read_bool(&t.get::<Value>("noCache")?, scoop.no_cache),
             skip_hash_check: read_bool(&t.get::<Value>("skipHashCheck")?, scoop.skip_hash_check),
-            arch: read_string(&t.get::<Value>("arch")?, scoop.arch.clone()).unwrap(),
+            arch: read_string(&t.get::<Value>("arch")?, scoop.arch.clone()),
         };
     }
 
@@ -582,10 +582,10 @@ fn read_bool(value: &Value, fallback: bool) -> bool {
     }
 }
 
-fn read_string(value: &Value, fallback: Option<String>) -> mlua::Result<Option<String>> {
+fn read_string(value: &Value, fallback: Option<String>) -> Option<String> {
     match value {
-        Value::String(s) => Ok(Some(s.to_str()?.to_string())),
-        _ => Ok(fallback),
+        Value::String(s) => s.to_str().ok().map(|s| s.to_string()).or(fallback),
+        _ => fallback,
     }
 }
 
