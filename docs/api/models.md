@@ -67,9 +67,14 @@ pub struct InstalledPackages {
     pub chocolatey: HashMap<String, String>,
     pub scoop: HashMap<String, String>,
 }
+
+impl InstalledPackages {
+    pub fn packages(&self, manager: PackageManager) -> &HashMap<String, String>;
+    pub fn packages_mut(&mut self, manager: PackageManager) -> &mut HashMap<String, String>;
+}
 ```
 
-Each map maps package ID to the installed version string.
+Each map maps package ID to the installed version string. `packages` / `packages_mut` select the map for a given manager.
 
 ### State
 
@@ -86,6 +91,11 @@ pub struct State {
     pub scoop_buckets: HashMap<String, Option<String>>,
     pub config_files: HashMap<String, String>,
 }
+
+impl State {
+    pub fn packages(&self, manager: PackageManager) -> &HashMap<String, String>;
+    pub fn packages_mut(&mut self, manager: PackageManager) -> &mut HashMap<String, String>;
+}
 ```
 
 | Field | Type | Default | Description |
@@ -95,7 +105,9 @@ pub struct State {
 | `chocolatey` | `HashMap<String, String>` | empty | Tracked chocolatey packages |
 | `scoop` | `HashMap<String, String>` | empty | Tracked scoop packages |
 | `scoop_buckets` | `HashMap<String, Option<String>>` | empty | Scoop buckets added by NTIX (name to URL) |
-| `config_files` | `HashMap<String, String>` | empty | Managed config files (absolute dest path to content hash) |
+| `config_files` | `HashMap<String, String>` | empty | Managed config files (absolute dest path to content hash); `#[serde(default)]` |
+
+`packages` / `packages_mut` select the per-manager map. `config_files` deserializes as empty when the field is absent from an older state file.
 
 ### DiffResult
 
@@ -138,7 +150,7 @@ impl DiffResult {
 | `config_files_no_longer_managed` | `Vec<String>` | Dest paths tracked in state but no longer in config |
 | `warnings` | `Vec<String>` | Non-fatal warnings |
 | `manager_validation` | `ValidationResult` | Result of the capability-detection pass |
-| `is_empty()` | `bool` | True if all action lists are empty (warnings excluded) |
+| `is_empty()` | `bool` | True when no action list has entries. Warnings and the informational lists (`to_skip`, `to_untracked`) are ignored, so a diff with only those is empty |
 
 ### ConfigFileEntry
 
@@ -167,7 +179,13 @@ pub struct ValidationResult {
     pub choco_installed: bool,
     pub scoop_installed: bool,
 }
+
+impl ValidationResult {
+    pub fn installed(&self, manager: PackageManager) -> bool;
+}
 ```
+
+`installed` returns whether the given manager was detected on the system.
 
 ### ImportNode
 
@@ -193,4 +211,10 @@ pub struct NTIXConfig {
     pub config_files: Vec<ConfigFileEntry>,
     pub imports: Vec<ImportNode>,
 }
+
+impl NTIXConfig {
+    pub fn packages(&self, manager: PackageManager) -> &[PackageEntry];
+}
 ```
+
+`packages` selects the declared package list for a given manager.

@@ -14,9 +14,14 @@ pub struct NTIXOptions {
     pub chocolatey: ChocoOptions,
     pub scoop: ScoopOptions,
 }
+
+impl NTIXOptions {
+    /// Whether the user enabled `manager` in the config's options table.
+    pub fn enabled(&self, manager: PackageManager) -> bool;
+}
 ```
 
-Each field defaults to a fully disabled (`Default`) value unless configured.
+Every manager defaults to disabled (`enable = false`) until configured. `enabled` is the single place that maps a `PackageManager` to its option flag.
 
 ### WingetOptions
 

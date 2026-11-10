@@ -2,7 +2,7 @@
 
 ## ntix-rs API Reference
 
-`ntix-rs` is the Rust crate behind the NTIX binary. It provides config parsing, diff computation, package execution, state management, and file locking. The core library is pure data and logic with no console I/O; the binary wrapper (`src/main.rs`) owns all printing and the interactive spinner.
+`ntix-rs` is the Rust crate behind the NTIX binary. It provides config parsing, diff computation, package execution, state management, and file locking. The library exposes data and logic and streams output through caller-provided callbacks; the binary wrapper (`src/main.rs`) owns user-facing printing and the interactive spinner. A few library paths still log diagnostics to stderr (for example, unreadable state files and failed manager detection).
 
 ### Crate
 
@@ -10,7 +10,7 @@
 ntix-rs (2024 edition)
 ```
 
-Key dependencies: `mlua` (embedded Lua 5.4), `tokio`, `clap`, `serde_json`, `regex`, `anyhow`, `async-trait`, `indicatif`, `colored`, `windows`.
+Key dependencies: `mlua` (embedded Lua 5.4), `tokio`, `clap`, `serde` / `serde_json`, `regex`, `futures`, `async-trait`, `indicatif`, `colored`, `sha2`, `dirs`, `pathdiff`, `windows`.
 
 ### Modules
 
@@ -21,7 +21,7 @@ Key dependencies: `mlua` (embedded Lua 5.4), `tokio`, `clap`, `serde_json`, `reg
 | `ntix_rs::diff` | Diff computation (desired vs current state) |
 | `ntix_rs::execution` | Package install/upgrade/remove execution |
 | `ntix_rs::state_management` | State file persistence |
-| `ntix_rs::package_manager` | Per-manager operations (`winget_ops`, `choco_ops`, `scoop_ops`), command building, table parsing, detection |
+| `ntix_rs::package_manager` | Per-manager operations (`winget_ops`, `choco_ops`, `scoop_ops`), command building, table parsing, detection, and probe injection (`probes::Probes`) |
 | `ntix_rs::lock` | Concurrent execution locking |
 | `ntix_rs::paths` | Default paths (`%LOCALAPPDATA%/ntix`) |
 | `ntix_rs::process_helper` | Admin / token membership checks |
@@ -38,6 +38,9 @@ Key dependencies: `mlua` (embedded Lua 5.4), `tokio`, `clap`, `serde_json`, `reg
 | `InstalledPackages` | Packages found on the system (per-manager maps) |
 | `PackageManager` | Typed manager identifier (`Winget`, `Chocolatey`, `Scoop`) |
 | `ValidationResult` | Manager capability check shared by diff and apply |
+| `Probes` | Injection knobs for probe-dependent operations (runner, installed snapshot, manager presence, validation toggle) |
+| `Presence` | Fixed manager availability used instead of live detection |
+| `Output` | Line/error callbacks for an apply run |
 | `ConfigFileEntry` | A source/destination pair for a managed file |
 | `CommandRunner` | Abstraction over shell commands (mockable) |
 | `ProcessCommandRunner` | Default `CommandRunner` using `cmd.exe` |
@@ -53,31 +56,25 @@ Key dependencies: `mlua` (embedded Lua 5.4), `tokio`, `clap`, `serde_json`, `reg
 use ntix_rs::config::config_loader;
 use ntix_rs::state_management::state_service;
 use ntix_rs::diff::diff_engine;
-use ntix_rs::execution::execution_engine;
-use ntix_rs::package_manager::package_manager_detector;
+use ntix_rs::execution::execution_engine::{self, Output};
+use ntix_rs::package_manager::probes::Probes;
 
 let config = config_loader::load("config.lua".into())?;
-let mut state = state_service::load_state(None).unwrap_or_default();
+let mut state = state_service::load_state().unwrap_or_default();
 
 let progress = indicatif::ProgressBar::new_spinner();
-let validation = package_manager_detector::validate_managers_async(
-    &config.options, &config, None, None, None, None,
-).await;
-
+// `Probes::default()` uses the real process runner and live detection.
 let diff = diff_engine::compute_diff(
-    &config, &state,
-    validation.winget_installed.then_some(true),
-    validation.choco_installed.then_some(true),
-    validation.scoop_installed.then_some(true),
-    None, false, false, true, None, &progress,
+    &config, &state, &Probes::default(), false, false, &progress,
 ).await?;
 
 let state_path = state_service::get_state_path()?;
+let output = Output {
+    line: Some(&|line: &str| println!("{line}")),
+    error: Some(&|err: &str| eprintln!("{err}")),
+};
 let success = execution_engine::apply_diff(
     &diff, &config.options, &mut state, &state_path, false,
-    &validation, false,
-    Some(&|line: &str| println!("{line}")),
-    Some(&|err: &str| eprintln!("{err}")),
-    None,
+    &diff.manager_validation, false, output, None,
 ).await;
 ```

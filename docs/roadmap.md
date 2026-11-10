@@ -14,7 +14,7 @@ configFiles = {
 }
 ```
 
-Declare them under `configFiles` in any config, preview with `ntix diff -c` and apply with `ntix apply -c`. See [Configuration](../configuration/README.md).
+Declare them under `configFiles` in any config, preview with `ntix diff -c` and apply with `ntix apply -c`. See [Configuration](configuration/README.md).
 
 ## Upcoming
 

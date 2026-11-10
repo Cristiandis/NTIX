@@ -54,7 +54,9 @@ Config-file actions (`config_files_to_create`, `config_files_to_update`, `config
 
 In addition, `warnings` collects non-fatal notes such as a manager being enabled but not installed, or a package that could not be verified.
 
-Before listing packages, NTIX validates that they exist in their respective managers. A package **confirmed not to exist** is removed from `to_install` and added to `warnings`; a package that **cannot be verified** (for example a failed search query) is kept in `to_install` but flagged with a warning.
+Classification is gated per manager: installs and upgrades require the manager to be **enabled and detected**, while orphan removal only requires it to be **detected**. A manager that is enabled but missing is left alone rather than treated as empty.
+
+Before listing new packages, NTIX validates that they exist in their respective managers (already-tracked packages are not re-checked). All managers' new IDs are checked concurrently. A package **confirmed not to exist** is removed from `to_install` and added to `warnings`; a package that **cannot be verified** (for example a failed search query) is kept in `to_install` but flagged with a warning.
 
 ### State Management
 
@@ -72,7 +74,7 @@ NTIX tracks what it manages in a JSON state file at `%LOCALAPPDATA%/ntix/state.j
 ```
 
 * **Atomic writes** - state is written to a temp file then moved into place, preventing corruption
-* **Orphan detection** - packages in the state file but not in the config are marked for removal
+* **Orphan detection** - packages in the state file but not in the config are marked for removal, but only for managers detected on the system
 * **Retry logic** - file writes retry (with linear backoff) up to 3 times on failure
 * **Scoop buckets** - buckets added by NTIX are recorded under `scoopBuckets`
 * **Config files** - managed files are recorded under `configFiles`, keyed by destination path and valued by content hash
@@ -83,8 +85,10 @@ Only one `ntix apply` can run at a time. A lock file at `%LOCALAPPDATA%/ntix/app
 
 ### Package Manager Detection
 
-NTIX uses `PackageManagerDetector` to probe which managers are available:
+NTIX runs one capability-detection pass (`package_manager_detector::validate_managers`) and shares the resulting `ValidationResult` between diff and apply:
 
-* winget - checked and auto-installed via the App Installer if missing and enabled
+* winget - checked and auto-installed via the App Installer if missing and enabled; re-detected after the install attempt
 * Chocolatey - probed by running `choco --version`
 * Scoop - probed by running `scoop --version`
+
+Chocolatey and Scoop are probed concurrently. Installed-package discovery and package-existence validation also fan out across managers instead of running serially. Tests inject runner, installed snapshot, and presence through `Probes` rather than threading extra parameters through every call.

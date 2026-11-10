@@ -8,6 +8,20 @@ Applies a computed diff by invoking package manager commands.
 use ntix_rs::execution::execution_engine;
 ```
 
+### Output
+
+The two output sinks for a run are bundled into one struct.
+
+```rust
+#[derive(Default)]
+pub struct Output<'a> {
+    pub line: Option<LineCallback<'a>>,
+    pub error: Option<LineCallback<'a>>,
+}
+```
+
+Where `LineCallback<'a> = &'a (dyn Fn(&str) + Sync)`. `Output::default()` is fully silent: no progress lines and no errors.
+
 ### apply_diff
 
 ```rust
@@ -20,13 +34,10 @@ pub async fn apply_diff(
     stop_on_failure: bool,
     validation: &ValidationResult,
     apply_config: bool,
-    on_output: Option<LineCallback<'_>>,
-    on_error: Option<LineCallback<'_>>,
+    output: Output<'_>,
     runner: Option<&dyn CommandRunner>,
 ) -> bool
 ```
-
-Where `LineCallback<'a> = &'a (dyn Fn(&str) + Sync)`.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -37,24 +48,23 @@ Where `LineCallback<'a> = &'a (dyn Fn(&str) + Sync)`.
 | `stop_on_failure` | `bool` | `false` | Stop on first failure |
 | `validation` | `&ValidationResult` | required | Manager capability check from the diff pass |
 | `apply_config` | `bool` | `false` | Apply `configFiles` actions |
-| `on_output` | `Option<LineCallback>` | `None` | Stdout callback |
-| `on_error` | `Option<LineCallback>` | `None` | Stderr callback |
+| `output` | `Output<'_>` | silent | Progress (`line`) and error (`error`) callbacks |
 | `runner` | `Option<&dyn CommandRunner>` | `None` | Command runner; uses `ProcessCommandRunner` if `None` |
 
 **Returns:** `bool` - true if all operations succeeded.
 
 ### Execution Order
 
-1. Reports manager-validation warnings that are not already in `diff.warnings` through `on_error`
-2. Ensures scoop buckets are added and orphaned buckets removed (if scoop is enabled)
+1. Reports manager-validation warnings that are not already in `diff.warnings` through `output.error`, so a warning is never printed twice
+2. Ensures scoop buckets are added and orphaned buckets removed (if scoop is enabled). Bucket commands run silently - only the progress line and any failure line are shown
 3. Installs packages (`to_install`)
 4. Upgrades packages (`to_upgrade`)
 5. Removes orphans (`to_remove`)
 6. Adopts packages (`to_adopt`) - state only, no install
 7. Applies `configFiles` (`to_create` and `to_update` are copied from src to dest; orphans are dropped from tracking without touching disk) - only when `apply_config` is true
-8. Saves state after each successful operation
+8. Saves state after each successful operation and after the adopt/config-file phases
 
-Operations for a disabled manager are skipped. If `stop_on_failure` is true, execution halts on the first failed operation.
+Install and upgrade operations are skipped when the manager is not both enabled in options and detected by validation. Removals are not gated here: `diff.to_remove` is already restricted to detected managers by `compute_diff`. If `stop_on_failure` is true, execution halts on the first failed operation.
 
 ### Failure recovery
 

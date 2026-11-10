@@ -40,6 +40,6 @@ By default, `apply` does **not** check for upgrades - it only installs missing p
 9. Applies `configFiles` (only with `-c`)
 10. Updates the state file after each operation
 
-Orphaned packages are removed automatically. Use `--no-gc` to skip.
+Orphaned packages are removed automatically. Use `--no-gc` to skip. Orphan cleanup only considers managers detected on the system; packages tracked for a manager that is not installed are left in state.
 
 If a manager exits nonzero but the package is in the desired state (for example winget reports an install as "already installed"), `apply` verifies against the installed-package list and treats the outcome as successful. The same check confirms a removal when a package was already gone.

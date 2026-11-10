@@ -12,24 +12,26 @@ use ntix_rs::lock::lock_file::LockFile;
 
 ```rust
 pub struct LockFile {
-    lock_stream: Option<File>,
+    file: Option<File>,   // None only during Drop
     lock_path: PathBuf,
 }
 
 impl LockFile {
-    pub fn new(lock_path: Option<PathBuf>, should_lock: bool)
-        -> Result<Self, Box<dyn std::error::Error>>;
-    pub fn get_default_lock_path() -> Result<PathBuf, Box<dyn std::error::Error>>;
+    pub fn acquire() -> Result<Self, Box<dyn std::error::Error>>;
+    pub fn acquire_at(lock_path: PathBuf) -> Result<Self, Box<dyn std::error::Error>>;
 }
 
-impl Drop for LockFile { /* releases the lock and removes the file */ }
+pub fn get_default_lock_path() -> Result<PathBuf, Box<dyn std::error::Error>>;
+
+impl Drop for LockFile { /* closes the handle, then removes the file */ }
 ```
 
 | Member | Description |
 |--------|-------------|
-| `new` | Acquires an exclusive lock at `lock_path` (or the default). Returns `Err` if already locked by another process. Pass `should_lock = false` to create an unlocked instance. |
+| `LockFile::acquire` | Acquires the lock at the default path. Returns `Err` while another holder keeps it locked |
+| `LockFile::acquire_at` | Acquires the lock at an explicit path (creates the parent directory if needed) |
 | `get_default_lock_path` | Returns `%LOCALAPPDATA%/ntix/apply.lock` |
-| `Drop` | Releases the lock stream and deletes the lock file |
+| `Drop` | Closes the file handle first (Windows cannot delete an open file), then deletes the lock file |
 
 ### Behavior
 

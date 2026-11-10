@@ -38,7 +38,7 @@ Or run the built binary directly:
 cargo test
 ```
 
-The test suite has 245 tests covering config loading, diff computation, execution, state management, locking, command building, package manager detection, table parsing, and the real `cmd.exe` command runner.
+The test suite has 225 tests covering config loading, diff computation, execution, state management, locking, command building, package manager detection, table parsing, and the real `cmd.exe` command runner.
 
 ### Project structure
 
@@ -53,7 +53,7 @@ NTIX/
 │   ├── execution/              Package execution and config-file application
 │   ├── lock/                   File locking
 │   ├── models/                 Data models, options, and config structs
-│   ├── package_manager/        Per-manager ops (winget/choco/scoop), command building, table parsing, detection
+│   ├── package_manager/        Per-manager ops (winget/choco/scoop), command building, table parsing, detection, probe injection (probes.rs)
 │   ├── state_management/       State persistence
 │   ├── paths.rs                Default paths
 │   ├── process_helper.rs       Admin / token membership checks

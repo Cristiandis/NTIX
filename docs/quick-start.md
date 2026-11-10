@@ -72,12 +72,15 @@ ntix diff
 You'll see output like:
 
 ```
-To install:
-  winget: Google.Chrome (latest)
-  winget: 7zip.7zip (latest)
-  chocolatey: ripgrep (latest)
-  scoop: fd (latest)
-  scoop: bat (latest)
+config.lua
+└── ↑ To install (5)
+    ├── winget (2)
+    │   ├── 7zip.7zip
+    │   └── Google.Chrome
+    ├── chocolatey: ripgrep
+    └── scoop (2)
+        ├── bat
+        └── fd
 ```
 
 You can also pass a custom config path: `ntix diff ./my-config.lua`

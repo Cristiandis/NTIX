@@ -29,4 +29,4 @@ When using `import()`, packages with the same ID are deduplicated. **Last import
 
 ### Validation
 
-NTIX validates packages exist in their managers before diffing. Invalid packages are flagged with a warning.
+NTIX validates that newly declared packages exist in their managers before diffing; packages already tracked in state are not re-checked. Packages confirmed not to exist are dropped from the diff with a warning, while packages that cannot be verified are kept and flagged.

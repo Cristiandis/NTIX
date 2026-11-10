@@ -34,7 +34,7 @@ NTIX renders a tree with section headers, color-coded by action.
 | **To adopt** | `✚` | Cyan | Installed packages that would be added to state (only with `-a`) |
 | **Installed, not managed** | `✓` | Dim | Installed packages NTIX does not track (informational) |
 | **Already managed** | `✓` | Dim | Packages at the correct version |
-| **Buckets to add** | `↑` | Green | Scoop buckets to add (only when scoop is enabled) |
+| **Buckets to add** | `↑` | Green | Scoop buckets to add (only when scoop is enabled and installed) |
 | **Buckets to remove** | `↓` | Red | Scoop buckets to remove |
 | **Orphans** | `✗` | Red | Orphaned packages to clean up |
 | **Config files** | `⚑` | White | Managed files: `[new]` green, `[update]` yellow, `[orphan]` red (only with `-c`) |
@@ -46,11 +46,13 @@ Manager names are colored: winget (purple), chocolatey (blue), scoop (pink).
 ```
 config.lua
 ├── ↑ To install (3)
-│   ├── winget: Google.Chrome
-│   ├── winget: 7zip.7zip (23.01)
+│   ├── winget (2)
+│   │   ├── 7zip.7zip (23.01)
+│   │   └── Google.Chrome
 │   └── scoop: fd
 └── ✓ Already managed (1)
-    └── chocolatey: ripgrep
 ```
 
-Warnings appear in yellow for packages not found in their manager.
+A manager with several packages is grouped under a `<manager> (count)` heading; a manager with one package is shown as `<manager>: <id>`. The "Already managed" section is a count only.
+
+Warnings appear in yellow for packages not found in their manager or that could not be verified.
